@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+publish/
+installer/Output/
+
+# Visual Studio
+.vs/
+*.user
+
+# Files Claude saves into this folder while working
+Claude outputs/
