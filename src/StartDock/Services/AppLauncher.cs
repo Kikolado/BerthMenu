@@ -34,6 +34,19 @@ namespace StartDock.Services
             }
         }
 
+        /// <summary>The menu bar's Calculator button: Windows' own Calculator app.</summary>
+        public static void OpenCalculator()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("calc.exe") { UseShellExecute = true });
+            }
+            catch
+            {
+                // Calculator removed or blocked — nothing sensible to fall back to.
+            }
+        }
+
         public static void OpenFileExplorer()
         {
             try

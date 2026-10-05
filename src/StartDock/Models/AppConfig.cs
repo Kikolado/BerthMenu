@@ -284,6 +284,7 @@ namespace StartDock.Models
         public bool ShowTaskManagerButton { get; set; } = true;
         public bool ShowVolumeMixerButton { get; set; } = true;
         public bool ShowFileExplorerButton { get; set; } = true;
+        public bool ShowCalculatorButton { get; set; } = true;
         public bool ShowSettingsButton { get; set; } = true;
         public bool ShowPowerButton { get; set; } = true;
 

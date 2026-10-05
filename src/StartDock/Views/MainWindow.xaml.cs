@@ -504,6 +504,15 @@ namespace StartDock.Views
             set => SetValue(ShowVolumeMixerButtonProperty, value);
         }
 
+        public static readonly DependencyProperty ShowCalculatorButtonProperty =
+            DependencyProperty.Register(nameof(ShowCalculatorButton), typeof(Visibility), typeof(MainWindow),
+                new FrameworkPropertyMetadata(Visibility.Visible));
+        public Visibility ShowCalculatorButton
+        {
+            get => (Visibility)GetValue(ShowCalculatorButtonProperty);
+            set => SetValue(ShowCalculatorButtonProperty, value);
+        }
+
         public static readonly DependencyProperty ShowFileExplorerButtonProperty =
             DependencyProperty.Register(nameof(ShowFileExplorerButton), typeof(Visibility), typeof(MainWindow),
                 new FrameworkPropertyMetadata(Visibility.Visible));
@@ -835,6 +844,7 @@ namespace StartDock.Views
             ShowTaskManagerButton = _config.ShowTaskManagerButton ? Visibility.Visible : Visibility.Collapsed;
             ShowVolumeMixerButton = _config.ShowVolumeMixerButton ? Visibility.Visible : Visibility.Collapsed;
             ShowFileExplorerButton = _config.ShowFileExplorerButton ? Visibility.Visible : Visibility.Collapsed;
+            ShowCalculatorButton = _config.ShowCalculatorButton ? Visibility.Visible : Visibility.Collapsed;
             ShowSettingsButton = _config.ShowSettingsButton ? Visibility.Visible : Visibility.Collapsed;
             ShowPowerButton = _config.ShowPowerButton ? Visibility.Visible : Visibility.Collapsed;
             ShowAddButton = _config.ShowAddButton ? Visibility.Visible : Visibility.Collapsed;
@@ -1134,7 +1144,7 @@ namespace StartDock.Views
             _menuBarButtons ??= new FrameworkElement[]
             {
                 UserButtonElement, AddTileButton, NativeStartMenuButton, TaskManagerButtonElement,
-                VolumeMixerButtonElement, FileExplorerButtonElement, SettingsButtonElement, PowerButtonElement,
+                VolumeMixerButtonElement, FileExplorerButtonElement, CalculatorButtonElement, SettingsButtonElement, PowerButtonElement,
             };
             _menuBarBaseMargins ??= _menuBarButtons.Select(b => b.Margin).ToArray();
 
@@ -1949,6 +1959,7 @@ namespace StartDock.Views
             BeginAppearAnimation();
 
             // After the dock is up, so neither delays it appearing.
+            RefreshUsageAsync();
             UpdateAutoSections();
             _ = AutoRefreshAppsAsync();
         }
@@ -2704,13 +2715,82 @@ namespace StartDock.Views
             HideDock();
         }
 
-        /// <summary>For "Recently used": remembers an installed app opened from
-        /// StartDock (any tile that launches through shell:AppsFolder).</summary>
-        private static void RecordAppLaunch(string target)
+        /// <summary>Counts a launch from StartDock — any tile: an installed app, a
+        /// pinned program or file, a Settings page. Feeds "Recently used" and puts
+        /// the things you open most first in search results (see UsageScore).</summary>
+        private void RecordAppLaunch(string target)
         {
-            const string prefix = "shell:AppsFolder\\";
-            if (target.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                AppUsageService.RecordLaunch(target.Substring(prefix.Length));
+            string key = AppUsageService.KeyFor(target);
+            if (key.Length == 0)
+                return;
+            AppUsageService.RecordLaunch(key);
+
+            // Keep the search ranking's copy current too, without re-reading it all.
+            if (_usage != null)
+            {
+                _usage.TryGetValue(key, out var u);
+                _usage[key] = new AppUsageService.Usage(u.Count + 1, DateTime.UtcNow);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Search ranking: the apps you open most come first
+        // ---------------------------------------------------------------
+
+        // How often and how recently things were opened (AppUsageService.GetUsage —
+        // StartDock's own launches plus Windows' launch history), re-read in the
+        // background each time the dock opens. Null until the first read finishes.
+        private Dictionary<string, AppUsageService.Usage>? _usage;
+        private bool _usageRefreshing;
+
+        private async void RefreshUsageAsync()
+        {
+            if (_usageRefreshing)
+                return;
+            _usageRefreshing = true;
+            try
+            {
+                _usage = await Task.Run(() => AppUsageService.GetUsage());
+            }
+            catch
+            {
+                // No ranking data this time — results just sort by name.
+            }
+            finally
+            {
+                _usageRefreshing = false;
+            }
+        }
+
+        /// <summary>How strongly a search result has been used: its launch count,
+        /// weighted towards recent use (full weight if used in the last week, half
+        /// in the last month, a quarter before that), so an app you've switched to
+        /// lately overtakes one you used to open a lot. 0 if never opened.</summary>
+        private double UsageScore(DockIconViewModel vm)
+        {
+            if (_usage == null || vm.IsFolder)
+                return 0;
+            string key = AppUsageService.KeyFor(vm.Model.TargetPath);
+            if (key.Length == 0 || !_usage.TryGetValue(key, out var u) || u.Count <= 0)
+                return 0;
+
+            double days = (DateTime.UtcNow - u.LastUsedUtc).TotalDays;
+            double weight = days <= 7 ? 1.0 : days <= 30 ? 0.5 : 0.25;
+            return u.Count * weight;
+        }
+
+        /// <summary>0 when the search text starts the name or any word in it
+        /// ("Power" → "Windows PowerShell"), 1 for any other match.</summary>
+        private static int MatchTier(string name, string filter)
+        {
+            int index = name.IndexOf(filter, StringComparison.OrdinalIgnoreCase);
+            while (index >= 0)
+            {
+                if (index == 0 || !char.IsLetterOrDigit(name[index - 1]))
+                    return 0;
+                index = name.IndexOf(filter, index + 1, StringComparison.OrdinalIgnoreCase);
+            }
+            return 1;
         }
 
         // ---------------------------------------------------------------
@@ -3082,8 +3162,14 @@ namespace StartDock.Views
             foreach (var entry in WindowsSettingsCatalog.Search(filter))
                 results.Add(CreateSettingsResultTile(entry));
 
+            // Best matches first (the text starts the name or a word in it), and
+            // within those, what you open most (UsageScore) — so after a few uses,
+            // "Power" puts PowerShell first instead of whatever sorts first by name.
+            // Then whole-name matches, then alphabetical.
             var ordered = results
-                .OrderBy(v => v.Name.StartsWith(filter, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .OrderBy(v => MatchTier(v.Name, filter))
+                .ThenByDescending(UsageScore)
+                .ThenBy(v => v.Name.StartsWith(filter, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
                 .Take(24) // enough to fill several rows without overwhelming the grid
                 .ToList();
@@ -4343,6 +4429,12 @@ namespace StartDock.Views
         private void FileExplorerButton_Click(object sender, RoutedEventArgs e)
         {
             AppLauncher.OpenFileExplorer();
+            HideDock();
+        }
+
+        private void CalculatorButton_Click(object sender, RoutedEventArgs e)
+        {
+            AppLauncher.OpenCalculator();
             HideDock();
         }
 

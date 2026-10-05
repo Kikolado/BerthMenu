@@ -197,6 +197,7 @@ namespace StartDock.Views
             ShowTaskManagerButtonCheck.IsChecked = current.ShowTaskManagerButton;
             ShowVolumeMixerButtonCheck.IsChecked = current.ShowVolumeMixerButton;
             ShowFileExplorerButtonCheck.IsChecked = current.ShowFileExplorerButton;
+            ShowCalculatorButtonCheck.IsChecked = current.ShowCalculatorButton;
             ShowSettingsButtonCheck.IsChecked = current.ShowSettingsButton;
             ShowPowerButtonCheck.IsChecked = current.ShowPowerButton;
             ShowAddButtonCheck.IsChecked = current.ShowAddButton;
@@ -258,6 +259,7 @@ namespace StartDock.Views
             ShowTaskManagerButtonCheck.IsEnabled = enabled;
             ShowVolumeMixerButtonCheck.IsEnabled = enabled;
             ShowFileExplorerButtonCheck.IsEnabled = enabled;
+            ShowCalculatorButtonCheck.IsEnabled = enabled;
             ShowSettingsButtonCheck.IsEnabled = enabled;
             ShowPowerButtonCheck.IsEnabled = enabled;
             MenuBarPositionCombo.IsEnabled = enabled;
@@ -673,6 +675,7 @@ namespace StartDock.Views
                 ShowTaskManagerButton = ShowTaskManagerButtonCheck.IsChecked == true,
                 ShowVolumeMixerButton = ShowVolumeMixerButtonCheck.IsChecked == true,
                 ShowFileExplorerButton = ShowFileExplorerButtonCheck.IsChecked == true,
+                ShowCalculatorButton = ShowCalculatorButtonCheck.IsChecked == true,
                 ShowSettingsButton = ShowSettingsButtonCheck.IsChecked == true,
                 ShowPowerButton = ShowPowerButtonCheck.IsChecked == true,
                 ShowAddButton = ShowAddButtonCheck.IsChecked == true,

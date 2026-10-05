@@ -721,6 +721,7 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- HorizontalAlignment="Left": this button sits in the bar's one
@@ -803,11 +804,15 @@
                             Content="&#xE838;" ToolTip="File Explorer" Click="FileExplorerButton_Click" Margin="0,0,4,0"
                             Visibility="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=ShowFileExplorerButton}"/>
 
-                    <Button x:Name="SettingsButtonElement" Grid.Column="6" Style="{StaticResource BottomBarIconButton}"
+                    <Button x:Name="CalculatorButtonElement" Grid.Column="6" Style="{StaticResource BottomBarIconButton}"
+                            Content="&#xE8EF;" ToolTip="Calculator" Click="CalculatorButton_Click" Margin="0,0,4,0"
+                            Visibility="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=ShowCalculatorButton}"/>
+
+                    <Button x:Name="SettingsButtonElement" Grid.Column="7" Style="{StaticResource BottomBarIconButton}"
                             Content="&#xE713;" ToolTip="Settings" Click="SettingsButton_Click" Margin="0,0,4,0"
                             Visibility="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=ShowSettingsButton}"/>
 
-                    <Button x:Name="PowerButtonElement" Grid.Column="7" Style="{StaticResource BottomBarIconButton}"
+                    <Button x:Name="PowerButtonElement" Grid.Column="8" Style="{StaticResource BottomBarIconButton}"
                             Content="&#xE7E8;" ToolTip="Power" Click="PowerButton_Click" Margin="0,0,10,0"
                             Visibility="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=ShowPowerButton}"/>
                 </Grid>

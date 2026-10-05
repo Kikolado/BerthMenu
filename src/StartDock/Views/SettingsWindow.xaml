@@ -200,6 +200,7 @@
                                 <CheckBox x:Name="ShowTaskManagerButtonCheck" Content="Task Manager"/>
                                 <CheckBox x:Name="ShowVolumeMixerButtonCheck" Content="Volume Mixer"/>
                                 <CheckBox x:Name="ShowFileExplorerButtonCheck" Content="File Explorer"/>
+                                <CheckBox x:Name="ShowCalculatorButtonCheck" Content="Calculator"/>
                                 <CheckBox x:Name="ShowSettingsButtonCheck" Content="Settings"
                                           ToolTip="Settings stays reachable even if its button is hidden: right-click the tray icon → Settings."/>
                                 <CheckBox x:Name="ShowPowerButtonCheck" Content="Power"/>
@@ -221,7 +222,7 @@
                                     <ColumnDefinition Width="{StaticResource LayoutLabelColumnWidth}"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="Position" Style="{StaticResource RowLabel}"/>
+                                <TextBlock Text="Dock Position" Style="{StaticResource RowLabel}"/>
                                 <ComboBox x:Name="PositionCombo" Grid.Column="1" SelectedIndex="0">
                                     <!-- Grouped display order (top, middle, bottom — reading order) rather than
                                          DockPosition's own append-only declaration order —
