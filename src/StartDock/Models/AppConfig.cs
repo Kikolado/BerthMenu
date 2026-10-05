@@ -580,6 +580,11 @@ namespace StartDock.Models
         /// Declining the UAC prompt just leaves this launch running normally.</summary>
         public bool StartAsAdmin { get; set; } = false;
 
+        /// <summary>Check GitHub for new versions (a minute after starting, then every
+        /// six hours) and install them automatically while the dock isn't open — see
+        /// Services/Updater.cs. Settings' "Check for updates" works either way.</summary>
+        public bool AutoUpdate { get; set; } = true;
+
         // Version 2: the free-placement grid (DockIcon.SortOrder) was replaced by
         // named, flow-laid-out categories (see Categories above and
         // ConfigService.Load's migration).

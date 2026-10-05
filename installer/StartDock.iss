@@ -66,8 +66,17 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch StartDock"; Flags: nowait postinstall skipifsilent
+; Automatic updates run this installer silently with /RELAUNCH=1 (see the app's
+; Services\Updater.cs) — start StartDock again afterwards. runasoriginaluser: if
+; Setup had to ask for admin itself, StartDock still starts as the normal user.
+Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: ShouldRelaunch
 
 [Code]
+function ShouldRelaunch: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
+end;
+
 // Uninstall: always remove the "start when I sign in" entry (it points at the
 // .exe being removed), then offer to remove the user's StartDock settings too.
 // They're kept by default so reinstalling later brings everything back.

@@ -37,6 +37,10 @@ namespace StartDock.Views
         // (Settings, the Add-icon file picker) is on screen and briefly steals activation.
         private bool _dialogOpen;
 
+        /// <summary>True while a dialog (Settings, a file picker, …) is open from the
+        /// dock — App waits for this to clear before installing an update.</summary>
+        internal bool IsDialogOpen => _dialogOpen;
+
         // See AppConfig.ShowTaskbarOverFullscreen.
         private readonly FullscreenTaskbarService _fullscreenTaskbar = new();
 

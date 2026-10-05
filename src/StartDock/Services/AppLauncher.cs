@@ -105,7 +105,7 @@ namespace StartDock.Services
         /// another process — Windows only opens it in response to actually seeing a
         /// Windows key press (or a click on its own taskbar button) arrive. So this
         /// works around that the same way HotkeyService already sends its own
-        /// key taps to Windows (see its SendMaskKeyTap): it synthesizes
+        /// key taps to Windows (see its SendWinDownThenKey): it synthesizes
         /// a plain, isolated Win key tap via SendInput. That's what makes this safe
         /// to call even while HotkeyService's own keyboard hook and
         /// StartButtonOverlayService's own mouse hook are both active — every event

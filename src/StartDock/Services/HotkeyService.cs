@@ -13,24 +13,32 @@ namespace StartDock.Services
     /// (the WPF UI thread's Dispatcher qualifies) — SetWindowsHookEx requires that
     /// for WH_KEYBOARD_LL hooks to actually receive events.
     ///
-    /// How the Windows key is handled: Windows always gets to see the real Win
-    /// key-down and key-up — this hook never swallows either one. To stop the
-    /// native Start Menu from opening, the moment Win goes down StartDock sends one
-    /// tap of an unassigned "mask" key (VK 0xE8, the same trick AutoHotkey uses).
-    /// Windows only opens Start when Win is released with nothing else pressed
-    /// in between, so that tap is enough to keep Start closed, while every real
-    /// combo (Win+D, Win+L, Win+Shift+S, ...) still works exactly as normal. If Win
-    /// is released with no other key pressed, that was "Win alone", and the dock
-    /// opens.
+    /// How the Windows key is handled. A keyboard hook has to decide about each key
+    /// event as it happens, and can't know yet whether Win is being pressed on its
+    /// own or as the start of a combo (Win+D, Win+L, Win+Shift+S…). So:
+    ///  - Win going down is held back from Windows for now.
+    ///  - If Win comes back up with nothing pressed in between, that was "Win
+    ///    alone": the release is held back too, so Windows never saw any of it and
+    ///    doesn't open its Start Menu — and the dock opens instead.
+    ///  - If another key goes down first, it's a combo: that key is held back as
+    ///    well, and StartDock sends Windows "Win down" followed by that key in one
+    ///    go, so they arrive in the right order. From then on the keys flow through
+    ///    normally, including Win's eventual release.
     ///
-    /// Why it works this way: an earlier version withheld the Win key-down and
-    /// swallowed the key-up instead. If the hook ever ran late (Windows gives a
-    /// keyboard hook only a fraction of a second before passing a key on without
-    /// it — easy to hit while the dock is busy, say animating a GIF background),
-    /// Windows could see the key-down but never the key-up, and then believed Win
-    /// was still held: D minimized everything (Win+D), M minimized all windows
-    /// (Win+M), and so on, until Win was pressed again. Never swallowing Win's own
-    /// events means Windows always sees a complete press, so that can't happen.
+    /// Never leaving Windows thinking Win is still held: when Win is released, the
+    /// hook checks whether Windows actually saw Win go down (GetAsyncKeyState — a
+    /// keyboard hook runs before Windows records the key it's handling, so this
+    /// reads Windows' state just before this release). If it did — because of a
+    /// combo above, or because the hook answered too slowly and Windows passed the
+    /// key-down on without waiting (it only gives hooks a fraction of a second, easy
+    /// to miss while the dock is busy) — the release always goes through too. Only a
+    /// release whose key-down Windows never saw is held back. An earlier version
+    /// didn't check this, and could leave Windows believing Win was held, so D
+    /// acted as Win+D and M as Win+M until Win was pressed again.
+    ///
+    /// (A version that let Win through and tapped an unused "mask" key to keep Start
+    /// closed — the AutoHotkey trick — didn't stop Windows 11 opening Start, so this
+    /// holds Win back instead.)
     ///
     /// Ctrl+Esc (the classic alternate Start shortcut) is suppressed outright in
     /// Windows key mode — Esc isn't a modifier, so swallowing it can't leave
@@ -55,17 +63,19 @@ namespace StartDock.Services
             _diagnosticsFolder = diagnosticsFolder;
         }
 
-        // The vkCode of the Windows key currently held that may open the dock when
-        // released (0 = none). Set on its key-down, cleared on its key-up.
-        private int _trackedWinVk;
+        // The vkCode of the Windows key currently held back from Windows (0 = none).
+        // Set on its key-down, cleared on its key-up.
+        private int _pendingWinVk;
 
-        // True once any other key has gone down while _trackedWinVk is held — a combo
-        // like Win+D, not "Win alone", so its release doesn't open the dock.
-        private bool _otherKeyDuringWin;
+        // True once another key went down while _pendingWinVk was held: a combo, and
+        // Windows has been sent the Win key-down (see SendWinDownThenKey).
+        private bool _pendingWinIsCombo;
 
-        // Unassigned virtual-key code tapped while Win is held, so Windows doesn't
-        // open its own Start Menu when Win is released — see the class comment.
-        private const ushort MaskVirtualKey = 0xE8;
+        // When the last event for the held Win key arrived (KBDLLHOOKSTRUCT.time, ms).
+        // A held key keeps repeating many times a second, so a long silence means its
+        // release was missed (e.g. it happened on the lock screen, where this hook
+        // doesn't run) — see IsPendingWinStale.
+        private int _lastWinEventTime;
 
         public HotkeyMode Mode { get; set; } = HotkeyMode.WindowsKey;
 
@@ -109,8 +119,8 @@ namespace StartDock.Services
                 _hookHandle = IntPtr.Zero;
             }
 
-            _trackedWinVk = 0;
-            _otherKeyDuringWin = false;
+            _pendingWinVk = 0;
+            _pendingWinIsCombo = false;
         }
 
         /// <summary>The WH_KEYBOARD_LL callback Windows itself invokes for every
@@ -172,13 +182,25 @@ namespace StartDock.Services
             bool isWinKey = vk == NativeMethods.VK_LWIN || vk == NativeMethods.VK_RWIN;
 
             if (isWinKey)
-                return HandleWinKeyEvent(vk, isKeyDown, isKeyUp, nCode, wParam, lParam);
+                return HandleWinKeyEvent(vk, isKeyDown, isKeyUp, data.time, nCode, wParam, lParam);
 
-            // Any other key going down while Win is held makes this a combo (Win+D,
-            // Win+Shift+S, ...), so releasing Win won't open the dock. Windows already
-            // has the real Win key-down, so the combo itself just works.
-            if (_trackedWinVk != 0 && isKeyDown)
-                _otherKeyDuringWin = true;
+            // Another key going down while Win is held back makes this a combo
+            // (Win+D, Win+Shift+S, ...). Hold this key back too and send Windows
+            // "Win down" then this key, in that order, so the combo works normally.
+            if (_pendingWinVk != 0 && !_pendingWinIsCombo && isKeyDown)
+            {
+                if (IsPendingWinStale(data.time))
+                {
+                    // Win's release was missed — it isn't really held any more.
+                    _pendingWinVk = 0;
+                }
+                else
+                {
+                    _pendingWinIsCombo = true;
+                    SendWinDownThenKey(_pendingWinVk, data);
+                    return (IntPtr)1;
+                }
+            }
 
             // Ctrl+Esc is the other classic "open Start" shortcut. Suppress it the same
             // way, but only while we're the ones fully replacing Start (WindowsKey mode) —
@@ -230,11 +252,14 @@ namespace StartDock.Services
             return ctrlDown == wantCtrl && altDown == wantAlt && shiftDown == wantShift && winDown == wantWin;
         }
 
-        private IntPtr HandleWinKeyEvent(int vk, bool isKeyDown, bool isKeyUp, int nCode, IntPtr wParam, IntPtr lParam)
+        private IntPtr HandleWinKeyEvent(int vk, bool isKeyDown, bool isKeyUp, int time, int nCode, IntPtr wParam, IntPtr lParam)
         {
             if (isKeyDown)
             {
-                if (_trackedWinVk == 0)
+                if (_pendingWinVk != 0 && IsPendingWinStale(time))
+                    _pendingWinVk = 0; // an old press whose release was missed
+
+                if (_pendingWinVk == 0)
                 {
                     bool activatesDock = Mode switch
                     {
@@ -249,61 +274,85 @@ namespace StartDock.Services
                         _ => false,
                     };
 
-                    if (activatesDock)
-                    {
-                        _trackedWinVk = vk;
-                        _otherKeyDuringWin = false;
-                        SendMaskKeyTap(); // keeps the native Start Menu from opening on release
-                    }
-                }
-                else if (vk != _trackedWinVk)
-                {
-                    _otherKeyDuringWin = true; // both Windows keys at once — not "Win alone"
+                    if (!activatesDock)
+                        return NativeMethods.CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+
+                    _pendingWinVk = vk;
+                    _pendingWinIsCombo = false;
+                    _lastWinEventTime = time;
+                    return (IntPtr)1; // held back for now
                 }
 
-                // Always let Windows see Win go down (auto-repeats included).
+                if (vk == _pendingWinVk)
+                {
+                    _lastWinEventTime = time;
+                    // Auto-repeat while held: held back too, unless Windows already
+                    // has Win down (a combo), in which case it's just passed along.
+                    return _pendingWinIsCombo
+                        ? NativeMethods.CallNextHookEx(_hookHandle, nCode, wParam, lParam)
+                        : (IntPtr)1;
+                }
+
+                // The other Windows key while one is held: leave it to Windows.
                 return NativeMethods.CallNextHookEx(_hookHandle, nCode, wParam, lParam);
             }
 
-            if (isKeyUp && vk == _trackedWinVk)
+            if (isKeyUp && vk == _pendingWinVk)
             {
-                bool alone = !_otherKeyDuringWin;
-                _trackedWinVk = 0;
-                _otherKeyDuringWin = false;
+                bool alone = !_pendingWinIsCombo;
+                _pendingWinVk = 0;
+                _pendingWinIsCombo = false;
+
+                // Did Windows see this Win key go down? (The hook runs before Windows
+                // records this release, so this is the state just before it.)
+                bool windowsHasItDown = (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
 
                 if (alone)
                     DockRequested?.Invoke();
+
+                if (windowsHasItDown)
+                    return NativeMethods.CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+                return (IntPtr)1; // Windows never saw the press, so it mustn't see the release
             }
 
-            // Always let Windows see Win go up too, so it never thinks Win is still held.
+            // A Windows key this hook isn't holding back — let Windows have it.
             return NativeMethods.CallNextHookEx(_hookHandle, nCode, wParam, lParam);
         }
 
-        /// <summary>Taps the unassigned mask key (down + up). It's injected, so this
-        /// hook ignores it; Windows just sees "some other key was pressed with Win",
-        /// which is what stops it opening the Start Menu on release. If the tap is
-        /// blocked (e.g. an elevated window is in front and StartDock isn't running
-        /// as admin), the worst case is the native Start Menu also opening.</summary>
-        private static void SendMaskKeyTap()
-        {
-            static NativeMethods.INPUT Key(uint flags) => new()
-            {
-                type = NativeMethods.INPUT_KEYBOARD,
-                U = new NativeMethods.InputUnion
-                {
-                    ki = new NativeMethods.KEYBDINPUT
-                    {
-                        wVk = MaskVirtualKey,
-                        wScan = 0,
-                        dwFlags = flags,
-                        time = 0,
-                        dwExtraInfo = IntPtr.Zero,
-                    },
-                },
-            };
+        private bool IsPendingWinStale(int now) =>
+            unchecked(now - _lastWinEventTime) > 1500;
 
-            NativeMethods.SendInput(2, new[] { Key(0), Key(NativeMethods.KEYEVENTF_KEYUP) }, Marshal.SizeOf<NativeMethods.INPUT>());
+        /// <summary>Sends Windows the held-back Win key-down followed by the key that
+        /// made this a combo, as one SendInput call so they arrive in that order.
+        /// Both are injected, so this hook lets them straight through.</summary>
+        private static void SendWinDownThenKey(int winVk, NativeMethods.KBDLLHOOKSTRUCT key)
+        {
+            var inputs = new[]
+            {
+                KeyInput((ushort)winVk, 0, NativeMethods.KEYEVENTF_EXTENDEDKEY),
+                KeyInput((ushort)key.vkCode, (ushort)key.scanCode,
+                    (key.flags & LLKHF_EXTENDED) != 0 ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0),
+            };
+            NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
         }
+
+        private const int LLKHF_EXTENDED = 0x01;
+
+        private static NativeMethods.INPUT KeyInput(ushort vk, ushort scan, uint flags) => new()
+        {
+            type = NativeMethods.INPUT_KEYBOARD,
+            U = new NativeMethods.InputUnion
+            {
+                ki = new NativeMethods.KEYBDINPUT
+                {
+                    wVk = vk,
+                    wScan = scan,
+                    dwFlags = flags,
+                    time = 0,
+                    dwExtraInfo = IntPtr.Zero,
+                },
+            },
+        };
 
         private void LogFailure(Exception ex)
         {

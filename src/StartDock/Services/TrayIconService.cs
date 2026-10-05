@@ -87,6 +87,10 @@ namespace StartDock.Services
 
         public void Show() => _notifyIcon.Visible = true;
 
+        /// <summary>A Windows notification from the tray icon (used for updates).</summary>
+        public void ShowNotification(string title, string text) =>
+            _notifyIcon.ShowBalloonTip(5000, title, text, ToolTipIcon.Info);
+
         public void Dispose()
         {
             _notifyIcon.Visible = false;

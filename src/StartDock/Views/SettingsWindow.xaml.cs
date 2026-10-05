@@ -97,8 +97,8 @@ namespace StartDock.Views
             _configService = configService;
 
             // From the csproj's <Version> — the one place to bump it.
-            var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version;
-            VersionText.Text = version != null ? $"StartDock {version.Major}.{version.Minor}" : "StartDock";
+            // Shows a third number only when there is one (0.9, 0.9.1).
+            VersionText.Text = $"StartDock {Updater.Display(Updater.CurrentVersion)}";
 
             // Caps the scrollable settings list to whatever actually fits the real
             // screen this dialog is opening on, so Save/Cancel below it (outside
@@ -125,6 +125,10 @@ namespace StartDock.Views
             ShowTaskbarOverFullscreenCheck.IsChecked = current.ShowTaskbarOverFullscreen;
             AutoStartCheck.IsChecked = current.AutoStart;
             StartAsAdminCheck.IsChecked = current.StartAsAdmin;
+            AutoUpdateCheck.IsChecked = current.AutoUpdate;
+            Updater.StatusChanged += UpdateUpdaterStatus;
+            Closed += (_, _) => Updater.StatusChanged -= UpdateUpdaterStatus;
+            UpdateUpdaterStatus();
             AdminStatusText.Text = App.IsElevated ? "Running as Admin" : "Not running as Admin";
             RestartAsAdminButton.IsEnabled = !App.IsElevated;
             ThemeCombo.SelectedIndex = current.Theme switch
@@ -487,6 +491,50 @@ namespace StartDock.Views
                 IconSizeValueText.Text = $"{(int)Math.Round(e.NewValue)} px";
         }
 
+        /// <summary>Shows the updater's latest status, and turns the button into
+        /// "Update now" once a new version is downloaded.</summary>
+        private void UpdateUpdaterStatus()
+        {
+            UpdateStatusText.Text = Updater.Status;
+            UpdateStatusText.ToolTip = string.IsNullOrEmpty(Updater.Status) ? null : Updater.Status;
+            CheckUpdatesButton.Content = Updater.ReadyInstallerPath != null ? "Update now" : "Check for updates";
+            CheckUpdatesButton.IsEnabled = !Updater.IsBusy;
+
+            if (Updater.AvailableVersion is { } available)
+            {
+                UpdateAvailableText.Text = $"Update {Updater.Display(available)} available";
+                UpdateAvailableText.ToolTip = Updater.ReadyInstallerPath != null
+                    ? "Click to install it now (StartDock restarts)"
+                    : "Downloading…";
+                UpdateAvailableText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                UpdateAvailableText.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void UpdateAvailable_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (Updater.ReadyInstallerPath != null)
+                ((App)Application.Current).InstallUpdate();
+        }
+
+        private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+        {
+            if (Updater.ReadyInstallerPath == null)
+            {
+                CheckUpdatesButton.IsEnabled = false;
+                await Updater.CheckAndDownloadAsync(quiet: false);
+                UpdateUpdaterStatus();
+                return;
+            }
+
+            // Installing closes StartDock (and this window) and starts the new
+            // version. Unsaved changes here are lost, like Restart as Admin.
+            ((App)Application.Current).InstallUpdate();
+        }
+
         private void CategorySpacingSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             var text = ReferenceEquals(sender, ColumnSpacingSlider) ? ColumnSpacingValueText : RowSpacingValueText;
@@ -641,6 +689,7 @@ namespace StartDock.Views
                 WindowHeight = _pendingWindowHeight,
                 AutoStart = AutoStartCheck.IsChecked == true,
                 StartAsAdmin = StartAsAdminCheck.IsChecked == true,
+                AutoUpdate = AutoUpdateCheck.IsChecked == true,
                 Theme = ThemeCombo.SelectedIndex switch
                 {
                     1 => ThemeMode.Light,

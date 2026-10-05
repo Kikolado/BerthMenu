@@ -155,6 +155,18 @@
                                 <Button x:Name="RestartAsAdminButton" Grid.Column="1" Content="Restart as Admin" Click="RestartAsAdmin_Click"
                                         ToolTip="Restarts StartDock as Administrator now. Unsaved changes in this window are discarded — Save first to keep them."/>
                             </Grid>
+                            <!-- Updates — see Services/Updater.cs. -->
+                            <CheckBox x:Name="AutoUpdateCheck" Content="Update automatically" Margin="0,8,0,4"
+                                      ToolTip="Checks for new versions of StartDock and installs them while the dock is closed."/>
+                            <Grid Style="{StaticResource Row}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="UpdateStatusText" Grid.Column="0" Style="{StaticResource RowLabel}"
+                                           Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,8,0"/>
+                                <Button x:Name="CheckUpdatesButton" Grid.Column="1" Content="Check for updates" Click="CheckUpdates_Click"/>
+                            </Grid>
                         </StackPanel>
                     </Border>
 
@@ -634,6 +646,12 @@
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock x:Name="VersionText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <!-- "Update 0.9.1 available" once a newer version is found — click to
+                     install it (see SettingsWindow.xaml.cs UpdateUpdaterStatus). -->
+                <TextBlock x:Name="UpdateAvailableText" Margin="10,0,0,0" Opacity="0.75"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextDecorations="Underline" Cursor="Hand" Visibility="Collapsed"
+                           MouseLeftButtonUp="UpdateAvailable_Click"/>
                 <TextBlock x:Name="FooterStatusText" Margin="16,0,0,0"
                            Foreground="{DynamicResource SecondaryTextBrush}" TextTrimming="CharacterEllipsis"/>
             </StackPanel>

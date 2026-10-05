@@ -146,6 +146,119 @@ namespace StartDock
             _trayIconService.RestartAsAdminRequested += () => RestartAsAdministrator();
             _trayIconService.ExitRequested += Shutdown;
             _trayIconService.Show();
+
+            if (Updater.TakeJustUpdatedVersion() is { } updatedTo)
+                _trayIconService.ShowNotification("StartDock updated", $"You're now on StartDock {Updater.Display(updatedTo)}.");
+            StartUpdateChecks();
+        }
+
+        // ---------------------------------------------------------------
+        // Automatic updates (AppConfig.AutoUpdate) — see Services/Updater.cs
+        // ---------------------------------------------------------------
+
+        private System.Windows.Threading.DispatcherTimer? _updateTimer;
+        private DateTime _nextUpdateCheck;
+        private bool _toldAboutAdminUpdate;
+
+        /// <summary>A timer that ticks every minute: the first check for a new version
+        /// happens a minute after starting, then every six hours. Once one is
+        /// downloaded, each tick tries to install it, waiting until the dock is closed
+        /// and no dialog is open so an update never interrupts anything.</summary>
+        private void StartUpdateChecks()
+        {
+            _nextUpdateCheck = DateTime.Now.AddMinutes(1);
+            _updateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+            _updateTimer.Tick += async (_, _) =>
+            {
+                try { await UpdateTickAsync(); }
+                catch { /* an update problem must never take StartDock down */ }
+            };
+            _updateTimer.Start();
+        }
+
+        private async System.Threading.Tasks.Task UpdateTickAsync()
+        {
+            if (Updater.IsBusy)
+                return;
+
+            if (Updater.ReadyInstallerPath == null)
+            {
+                if (DateTime.Now < _nextUpdateCheck)
+                    return;
+                _nextUpdateCheck = DateTime.Now.AddHours(6);
+                if (!await Updater.CheckAndDownloadAsync(quiet: true))
+                    return;
+            }
+
+            // Checking and downloading always happen, so Settings can show "Update x.y
+            // available". Installing on its own only with Update automatically on.
+            if (!Config.AutoUpdate)
+                return;
+
+            // Running from Visual Studio (a Debug build): never install over the real
+            // copy by itself. (A variable rather than a bare return, so the compiler
+            // doesn't warn about the code below being unreachable.)
+#if DEBUG
+            bool installOnItsOwn = false;
+#else
+            bool installOnItsOwn = true;
+#endif
+            if (!installOnItsOwn)
+                return;
+
+            // Installed for all users: the installer needs the admin prompt, which
+            // shouldn't pop up out of nowhere. Say so once and let "Update now" in
+            // Settings do it.
+            if (Updater.InstallNeedsAdmin(IsElevated))
+            {
+                if (!_toldAboutAdminUpdate)
+                {
+                    _toldAboutAdminUpdate = true;
+                    _trayIconService.ShowNotification("StartDock update ready",
+                        $"StartDock {Updater.Display(Updater.ReadyVersion!)} is ready. Open Settings and click Update now to install it.");
+                }
+                return;
+            }
+
+            if (_dockWindow.Visibility == Visibility.Visible || _dockWindow.IsDialogOpen)
+                return; // try again next minute
+
+            InstallUpdate();
+        }
+
+        /// <summary>Runs the downloaded installer silently and exits, so it can replace
+        /// StartDock.exe; the installer starts StartDock again when it's done. Also
+        /// what Settings' "Update now" calls.</summary>
+        internal void InstallUpdate()
+        {
+            string? installer = Updater.ReadyInstallerPath;
+            if (installer == null || !System.IO.File.Exists(installer))
+                return;
+
+            Updater.MarkInstalling();
+            Updater.RememberPendingUpdate();
+
+            // Release the single-instance mutex before starting the installer, which
+            // checks it (AppMutex in StartDock.iss) and would otherwise wait for this
+            // copy to close — same reason as in RestartAsAdministrator.
+            try { _singleInstanceMutex?.ReleaseMutex(); } catch { /* already released */ }
+
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(installer, Updater.SilentInstallArguments)
+                {
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                // Couldn't start it (or the admin prompt was declined) — keep running.
+                try { _singleInstanceMutex?.WaitOne(0); } catch { /* best effort */ }
+                Updater.MarkInstallFailed(ex.Message);
+                return;
+            }
+
+            Shutdown();
         }
 
         /// <summary>Relaunches this same .exe elevated (via the "runas" shell verb,
@@ -268,6 +381,7 @@ namespace StartDock
 
         protected override void OnExit(ExitEventArgs e)
         {
+            _updateTimer?.Stop();
             _hotkeyService?.Dispose();
             _overlayService?.Dispose();
             _clickOutsideService?.Dispose();
