@@ -16,6 +16,34 @@
         PreviewTextInput="Window_PreviewTextInput">
 
     <Window.Resources>
+        <!-- The dock's own scroll areas (categories and search results): the
+             scrollbars float over the edge of the content instead of taking a strip
+             of their own, so they don't change how much room the tiles get (or the
+             gap on the right of a full row), and they only show while scrolling and
+             for two seconds after — see MainWindow.xaml.cs RevealScrollBars. Other
+             windows (Settings, Add to StartDock) keep the normal slim scrollbar. -->
+        <ControlTemplate x:Key="OverlayScrollViewerTemplate" TargetType="ScrollViewer">
+            <Grid Background="{TemplateBinding Background}">
+                <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                        CanContentScroll="{TemplateBinding CanContentScroll}"
+                                        Margin="{TemplateBinding Padding}"/>
+                <ScrollBar x:Name="PART_VerticalScrollBar" Orientation="Vertical"
+                           HorizontalAlignment="Right"
+                           Maximum="{TemplateBinding ScrollableHeight}"
+                           ViewportSize="{TemplateBinding ViewportHeight}"
+                           Value="{Binding VerticalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                           Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                           Opacity="0" IsHitTestVisible="False"/>
+                <ScrollBar x:Name="PART_HorizontalScrollBar" Orientation="Horizontal"
+                           VerticalAlignment="Bottom"
+                           Maximum="{TemplateBinding ScrollableWidth}"
+                           ViewportSize="{TemplateBinding ViewportWidth}"
+                           Value="{Binding HorizontalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                           Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
+                           Opacity="0" IsHitTestVisible="False"/>
+            </Grid>
+        </ControlTemplate>
+
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- One tile in the grid — an app/folder, or a transient search result
@@ -404,9 +432,19 @@
                      vertical stack of named, independently-wrapping rows (see
                      StartDock.Models.Category / CategoryViewModel). -->
                 <ScrollViewer x:Name="CategoriesScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="8,0,8,0"
+                              Template="{StaticResource OverlayScrollViewerTemplate}"
                               PreviewMouseWheel="CategoriesScrollViewer_PreviewMouseWheel"
                               PreviewDragOver="CategoriesScrollViewer_PreviewDragOver"
-                              ScrollChanged="CategoriesScrollViewer_ScrollChanged">
+                              ScrollChanged="CategoriesScrollViewer_ScrollChanged"
+                              Background="Transparent">
+                    <!-- Right-click on empty space in the dock. Background="Transparent"
+                         above makes the empty space catch the click at all. Tiles and
+                         category names keep their own right-click menus. -->
+                    <ScrollViewer.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Add App or Folder" Click="AddAppOrFolder_Click"/>
+                        </ContextMenu>
+                    </ScrollViewer.ContextMenu>
                     <!-- Two rows: categories at the top, the automatic Recently Added /
                          Recent Files sections at the bottom. MinHeight follows the visible
                          height, so when everything fits the gap opens up between the two
@@ -665,7 +703,9 @@
 
                 <!-- Flat view: search results or an open folder's contents — no
                      categories, no free reordering by drag, exactly as before. -->
-                <ScrollViewer x:Name="FlatScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="8,0,8,0" Visibility="Collapsed">
+                <ScrollViewer x:Name="FlatScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="8,0,8,0" Visibility="Collapsed"
+                              Template="{StaticResource OverlayScrollViewerTemplate}"
+                              ScrollChanged="FlatScrollViewer_ScrollChanged">
                     <ItemsControl x:Name="IconItemsControl" Margin="8"
                                   ItemsPanel="{StaticResource FlowGridPanelTemplate}"
                                   ItemTemplate="{StaticResource IconTileTemplate}"/>

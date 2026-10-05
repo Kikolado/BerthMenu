@@ -324,7 +324,9 @@ namespace StartDock.Views
         private int ColumnsFor(double width)
         {
             double w = double.IsPositiveInfinity(width) ? CellSize : width;
-            return Math.Max(1, (int)Math.Floor(w / CellSize));
+            // Half a pixel of tolerance, so a width that's a whole number of cells
+            // but rounded a hair short (DPI scaling) still fits all of them.
+            return Math.Max(1, (int)Math.Floor((w + 0.5) / CellSize));
         }
 
         /// <summary>How many children actually sit in the given row — equal to

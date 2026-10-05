@@ -310,6 +310,9 @@
                                 <TextBlock x:Name="ColumnSpacingValueText" Grid.Column="2" Text="16 px" Style="{StaticResource ValueText}"/>
                             </Grid>
 
+                            <CheckBox x:Name="SnapDockWidthCheck" Content="Snap dock width to the icon grid"
+                                      ToolTip="Dragging the dock's right edge jumps between whole columns of icons, so rows end without a gap. Turn off to resize smoothly. Doesn't apply to the Columns layout."/>
+
                             <Grid Style="{StaticResource Row}" Margin="0,6,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{StaticResource LayoutLabelColumnWidth}"/>

@@ -93,6 +93,7 @@ namespace StartDock.Views
         public SettingsWindow(AppConfig current, ConfigService configService)
         {
             InitializeComponent();
+            Services.ThemeService.ApplyTitleBarTheme(this);
             _original = current;
             _configService = configService;
 
@@ -153,6 +154,7 @@ namespace StartDock.Views
             // Right to match RowAlignment's own declaration order.
             RowAlignmentCombo.SelectedIndex = (int)current.IconAlignment;
             LayoutDirectionCombo.SelectedIndex = current.LayoutDirection == LayoutDirection.Columns ? 1 : 0;
+            SnapDockWidthCheck.IsChecked = current.SnapDockWidth;
             ColumnAlignmentCombo.SelectedIndex = (int)current.ColumnAlignment; // items ordered to match ColumnAlignment
             UpdateAlignmentRows();
 
@@ -280,6 +282,8 @@ namespace StartDock.Views
             bool columns = LayoutDirectionCombo.SelectedIndex == 1;
             RowAlignmentRow.Visibility = columns ? Visibility.Collapsed : Visibility.Visible;
             ColumnAlignmentRow.Visibility = columns ? Visibility.Visible : Visibility.Collapsed;
+            if (SnapDockWidthCheck != null)
+                SnapDockWidthCheck.IsEnabled = !columns; // the Columns layout never snaps
             if (RowSpacingRow != null && ColumnSpacingRow != null)
             {
                 RowSpacingRow.Visibility = columns ? Visibility.Collapsed : Visibility.Visible;
@@ -641,6 +645,7 @@ namespace StartDock.Views
                 FlipMenuBarOrder = FlipMenuBarOrderCheck.IsChecked == true,
                 IconAlignment = (RowAlignment)RowAlignmentCombo.SelectedIndex,
                 LayoutDirection = LayoutDirectionCombo.SelectedIndex == 1 ? LayoutDirection.Columns : LayoutDirection.Rows,
+                SnapDockWidth = SnapDockWidthCheck.IsChecked == true,
                 ColumnAlignment = (ColumnAlignment)Math.Max(0, ColumnAlignmentCombo.SelectedIndex),
                 BackgroundOpacity = OpacitySlider.Value,
                 BackgroundImagePath = _pendingBackgroundImagePath,

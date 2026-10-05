@@ -13,6 +13,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using StartDock.Models;
@@ -974,8 +975,78 @@ namespace StartDock.Views
         {
             // ScrollChanged bubbles up from scrolling areas inside, like a category
             // name's text box — only this one's own changes matter here.
-            if (IsColumnLayout && ReferenceEquals(e.OriginalSource, CategoriesScrollViewer))
+            if (!ReferenceEquals(e.OriginalSource, CategoriesScrollViewer))
+                return;
+            if (IsColumnLayout)
                 UpdateAutoSectionsPin();
+            RevealScrollBarsIfScrolled(CategoriesScrollViewer, e);
+        }
+
+        private void FlatScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (ReferenceEquals(e.OriginalSource, FlatScrollViewer))
+                RevealScrollBarsIfScrolled(FlatScrollViewer, e);
+        }
+
+        // ---- Auto-hiding scrollbars (OverlayScrollViewerTemplate in MainWindow.xaml)
+
+        private readonly Dictionary<ScrollViewer, DispatcherTimer> _scrollBarHideTimers = new();
+
+        /// <summary>Shows the scrollbars when the view actually scrolled — not when
+        /// its content merely grew or shrank (a search narrowing, say).</summary>
+        private void RevealScrollBarsIfScrolled(ScrollViewer viewer, ScrollChangedEventArgs e)
+        {
+            bool scrolled = e.VerticalChange != 0 || e.HorizontalChange != 0;
+            bool resized = e.ExtentHeightChange != 0 || e.ExtentWidthChange != 0
+                        || e.ViewportHeightChange != 0 || e.ViewportWidthChange != 0;
+            if (scrolled && !resized)
+                RevealScrollBars(viewer);
+        }
+
+        private static IEnumerable<System.Windows.Controls.Primitives.ScrollBar> OverlayScrollBars(ScrollViewer viewer)
+        {
+            foreach (string part in new[] { "PART_VerticalScrollBar", "PART_HorizontalScrollBar" })
+            {
+                if (viewer.Template?.FindName(part, viewer) is System.Windows.Controls.Primitives.ScrollBar bar)
+                    yield return bar;
+            }
+        }
+
+        /// <summary>Shows a scroll area's scrollbars and hides them again two seconds
+        /// after scrolling stops — or, if the mouse is on a scrollbar (about to
+        /// drag it, or dragging), once it moves off. While hidden they can't be
+        /// clicked, so they never get in the way of the tiles.</summary>
+        private void RevealScrollBars(ScrollViewer viewer)
+        {
+            foreach (var bar in OverlayScrollBars(viewer))
+            {
+                bar.BeginAnimation(OpacityProperty, null);
+                bar.Opacity = 1;
+                bar.IsHitTestVisible = true;
+            }
+
+            if (!_scrollBarHideTimers.TryGetValue(viewer, out var timer))
+            {
+                timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                timer.Tick += (_, _) => HideScrollBarsIfIdle(viewer, timer);
+                _scrollBarHideTimers[viewer] = timer;
+            }
+            timer.Stop();
+            timer.Start(); // restart the two seconds
+        }
+
+        private void HideScrollBarsIfIdle(ScrollViewer viewer, DispatcherTimer timer)
+        {
+            var bars = OverlayScrollBars(viewer).ToList();
+            if (bars.Any(b => b.IsMouseOver || b.IsMouseCaptureWithin))
+                return; // still in use — check again in two seconds
+
+            timer.Stop();
+            foreach (var bar in bars)
+            {
+                bar.IsHitTestVisible = false;
+                bar.BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(250)));
+            }
         }
 
         /// <summary>Columns: the mouse wheel scrolls the categories sideways (the
@@ -1959,6 +2030,7 @@ namespace StartDock.Views
             BeginAppearAnimation();
 
             // After the dock is up, so neither delays it appearing.
+            SnapWidthToGridSoon();
             RefreshUsageAsync();
             UpdateAutoSections();
             _ = AutoRefreshAppsAsync();
@@ -3432,6 +3504,10 @@ namespace StartDock.Views
             PersistConfig();
         }
 
+        /// <summary>Right-click on the dock's background → Add App or Folder: the same
+        /// as the menu bar's + button.</summary>
+        private void AddAppOrFolder_Click(object sender, RoutedEventArgs e) => AddTile_Click(sender, e);
+
         private void AddTile_Click(object sender, RoutedEventArgs e)
         {
             _dialogOpen = true;
@@ -3448,6 +3524,10 @@ namespace StartDock.Views
                 {
                     BrowseForFileAndAdd();
                 }
+                else if (picker.BrowseFolderInstead)
+                {
+                    BrowseForFolderAndAdd();
+                }
                 // else: user cancelled — do nothing.
             }
             finally
@@ -3462,12 +3542,29 @@ namespace StartDock.Views
             var dialog = new OpenFileDialog
             {
                 Title = "Add to StartDock",
-                Filter = "Programs and shortcuts (*.exe;*.lnk)|*.exe;*.lnk|All files (*.*)|*.*",
+                // Scripts (.cmd/.bat) are listed by default too, so something like
+                // installer\Publish.cmd can be pinned without switching to All files.
+                Filter = "Programs, scripts and shortcuts (*.exe;*.lnk;*.cmd;*.bat;*.url)|*.exe;*.lnk;*.cmd;*.bat;*.url|All files (*.*)|*.*",
                 CheckFileExists = true,
             };
 
             if (dialog.ShowDialog(this) == true)
                 AddIcon(Path.GetFileNameWithoutExtension(dialog.FileName), dialog.FileName);
+        }
+
+        /// <summary>Pins a folder from the disk (Documents, a project folder, …):
+        /// clicking it opens the folder in File Explorer.</summary>
+        private void BrowseForFolderAndAdd()
+        {
+            var dialog = new OpenFolderDialog { Title = "Add a folder to StartDock" };
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            string path = dialog.FolderName;
+            string name = Path.GetFileName(path.TrimEnd('\\'));
+            if (string.IsNullOrEmpty(name))
+                name = path; // a drive root like C:\
+            AddIcon(name, path);
         }
 
         private void AddIcon(string name, string targetPath, string? preResolvedIconPath = null)
@@ -4467,6 +4564,7 @@ namespace StartDock.Views
             Height = _config.WindowHeight;
             ApplyAppearanceSettings();
             UpdateAutoSections();
+            SnapWidthToGridSoon(); // the icon size may have changed the column width
 
             // The dock stays visible (just behind the modal Settings dialog) the
             // whole time it's open — if Position changed, move it to its new
@@ -4571,11 +4669,9 @@ namespace StartDock.Views
             _startWidth = Width;
             _resizeWorkArea = GetTargetWorkArea();
 
-            // CategoriesScrollViewer (not IconItemsControl, which now only hosts the
-            // flat search/folder view — see ShowCategoryGrid/ShowFlowGrid) is what
-            // stretches to fill the available width in the normal, top-level view, so
-            // it's what SnapWidth needs to measure "chrome" against.
-            _chromeWidth = Width - CategoriesScrollViewer.ActualWidth;
+            // Everything across the dock that isn't the tiles themselves — see
+            // TileAreaWidth for what that includes.
+            _chromeWidth = Width - TileAreaWidth();
 
             ((UIElement)sender).CaptureMouse();
         }
@@ -4586,7 +4682,14 @@ namespace StartDock.Views
 
             var current = PointToScreen(e.GetPosition(this));
             double deltaDip = (current.X - _resizeStartPoint.X) / _resizeDpiScaleX; // dragging right increases width
-            Width = SnapWidth(_startWidth + deltaDip);
+            // Columns: categories sit side by side with widths of their own, so
+            // there's no single grid to snap to — resize freely.
+            // Snapping is a setting (AppConfig.SnapDockWidth). Columns never snap:
+            // categories sit side by side with widths of their own, so there's no
+            // single grid to line up with.
+            Width = IsColumnLayout || !_config.SnapDockWidth
+                ? Clamp(_startWidth + deltaDip, MinWidth, MaxWidth)
+                : SnapWidth(_startWidth + deltaDip);
 
             RepositionHorizontallyDuringResize();
         }
@@ -4629,12 +4732,63 @@ namespace StartDock.Views
         /// usual min/max. See the doc comment on <see cref="_chromeWidth"/> for why
         /// there's no height counterpart to this any more. Snaps to IconCellSize
         /// (IconSize + the tile's own fixed margin), not a hardcoded 100, so this
-        /// keeps working correctly whatever icon size Settings is configured for.</summary>
+        /// keeps working correctly whatever icon size Settings is configured for.
+        ///
+        /// The minimum and maximum widths are applied in whole columns too: a width
+        /// below the minimum moves up to the next whole number of columns (and one
+        /// above the maximum down), rather than being cut to the exact minimum and
+        /// leaving a part-column gap on the right — which is what the smallest dock
+        /// used to show.</summary>
         private double SnapWidth(double rawWidth)
         {
-            double gridWidth = rawWidth - _chromeWidth;
-            int columns = Math.Max(1, (int)Math.Round(gridWidth / IconCellSize));
-            return Clamp(_chromeWidth + columns * IconCellSize, MinWidth, MaxWidth);
+            double cell = IconCellSize;
+            int columns = Math.Max(1, (int)Math.Round((rawWidth - _chromeWidth - SnapSlack) / cell));
+            double width = _chromeWidth + columns * cell + SnapSlack;
+            while (width < MinWidth)
+                width += cell;
+            while (width > MaxWidth && width - cell >= MinWidth)
+                width -= cell;
+            return width;
+        }
+
+        // No extra room: FlowGridPanel already tolerates a row a fraction of a pixel
+        // short (DPI rounding) without dropping its last tile, so a snapped row's
+        // gaps on the left and right come out equal.
+        private const double SnapSlack = 0;
+
+        /// <summary>The width the tiles actually get in the normal category view: the
+        /// scroll area minus the margins around the categories. (Its scrollbar floats
+        /// over the right-hand margin and takes no room — see
+        /// OverlayScrollViewerTemplate — so a full row has the same gap on the right
+        /// as on the left.) Snapping used to measure the whole scroll area, counting
+        /// on room for one more column than there really was: snapped to "4 across",
+        /// the dock fitted 3 plus a gap.</summary>
+        private double TileAreaWidth() =>
+            CategoriesScrollViewer.ActualWidth - CategoriesStack.Margin.Left - CategoriesStack.Margin.Right;
+
+        /// <summary>Re-snaps the dock's width to whole columns if it isn't on one —
+        /// after the icon size changes in Settings (which changes the column width),
+        /// or for a width saved before snapping measured correctly. Runs once layout
+        /// has caught up, and does nothing in the Columns layout.</summary>
+        private void SnapWidthToGridSoon()
+        {
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (IsColumnLayout || !_config.SnapDockWidth || !IsVisible
+                    || CategoriesScrollViewer.ActualWidth <= 0 || _resizingRight)
+                    return;
+
+                _chromeWidth = Width - TileAreaWidth();
+                double snapped = SnapWidth(Width);
+                if (Math.Abs(snapped - Width) < 0.5)
+                    return;
+
+                Width = snapped;
+                _resizeWorkArea = GetTargetWorkArea();
+                RepositionHorizontallyDuringResize();
+                _config.WindowWidth = snapped;
+                PersistConfig();
+            }));
         }
 
         private void CaptureCurrentDpiScale()

@@ -62,3 +62,6 @@ $repo = gh repo view --json url --jq .url
 Write-Host ""
 Write-Host "GitHub is now building $tag. Progress: $repo/actions" -ForegroundColor Green
 Write-Host "When it finishes, the release appears at: $repo/releases" -ForegroundColor Green
+
+# Open the build's progress page.
+Start-Process "$repo/actions"

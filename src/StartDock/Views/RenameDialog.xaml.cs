@@ -10,6 +10,7 @@ namespace StartDock.Views
         public RenameDialog(string currentName)
         {
             InitializeComponent();
+            Services.ThemeService.ApplyTitleBarTheme(this);
             NameBox.Text = currentName;
             Loaded += (_, _) =>
             {

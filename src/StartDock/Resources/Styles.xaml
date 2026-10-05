@@ -113,16 +113,17 @@
     </Style>
 
     <Style TargetType="ScrollBar">
-        <!-- Both Width and Height are set to the same slim value (rather than just
-             Width) so this covers a horizontal scrollbar too without needing a
-             separate orientation-keyed Style: whichever axis a given ScrollBar
-             actually stretches along is decided by its container (ScrollViewer's
-             own template), not by this Style, so setting both just means "thin on
-             its short axis" either way. Not that this app ever shows a horizontal
-             one today (every ScrollViewer here is vertical-only), but there's no
-             reason to leave a broken-looking one lying in wait if that changes. -->
+        <!-- 8px across its short side only: Width for a vertical scrollbar, Height
+             for a horizontal one (the trigger at the bottom). This used to set both
+             Width and Height to 8 for every scrollbar, on the theory that the
+             container would stretch the long side anyway — it doesn't, an explicit
+             Height wins, so a vertical scrollbar came out as an 8x8 square with a
+             tiny unusable thumb in it (the little dash at the right of the dock and
+             the Add to StartDock list). -->
         <Setter Property="Width" Value="8"/>
-        <Setter Property="Height" Value="8"/>
+        <Setter Property="Height" Value="Auto"/>
+        <Setter Property="MinWidth" Value="0"/>
+        <Setter Property="MinHeight" Value="0"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -130,7 +131,8 @@
                     <Grid Background="{TemplateBinding Background}">
                         <Track x:Name="PART_Track" IsDirectionReversed="True" Focusable="False">
                             <Track.Thumb>
-                                <Thumb Style="{StaticResource SlimScrollBarThumb}" Margin="2"/>
+                                <!-- At least 24px long, so it stays easy to grab in a long list. -->
+                                <Thumb x:Name="SlimThumb" Style="{StaticResource SlimScrollBarThumb}" Margin="2" MinHeight="24"/>
                             </Track.Thumb>
                             <!-- No arrow buttons at either end (a slim scrollbar has none) —
                                  these two RepeatButtons exist only so clicking the track above/
@@ -149,11 +151,19 @@
                              horizontal one needs the opposite so dragging right scrolls right. -->
                         <Trigger Property="Orientation" Value="Horizontal">
                             <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/>
+                            <Setter TargetName="SlimThumb" Property="MinHeight" Value="0"/>
+                            <Setter TargetName="SlimThumb" Property="MinWidth" Value="24"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto"/>
+                <Setter Property="Height" Value="8"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
 </ResourceDictionary>

@@ -26,9 +26,13 @@ namespace StartDock.Views
         /// <summary>True when the user clicked "Browse for a file instead" (DialogResult == false in that case too).</summary>
         public bool BrowseInstead { get; private set; }
 
+        /// <summary>True when the user clicked "Add a folder" instead.</summary>
+        public bool BrowseFolderInstead { get; private set; }
+
         public PickInstalledAppDialog(ConfigService configService)
         {
             InitializeComponent();
+            Services.ThemeService.ApplyTitleBarTheme(this);
 
             _iconExtractor = new IconExtractor(configService);
 
@@ -111,6 +115,13 @@ namespace StartDock.Views
             SelectedApp = vm.Model;
             SelectedIconPath = vm.CachedIconPath;
             DialogResult = true;
+            Close();
+        }
+
+        private void BrowseFolderInstead_Click(object sender, RoutedEventArgs e)
+        {
+            BrowseFolderInstead = true;
+            DialogResult = false;
             Close();
         }
 

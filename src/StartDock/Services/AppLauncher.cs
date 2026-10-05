@@ -9,6 +9,10 @@ namespace StartDock.Services
     /// <summary>Launches a <see cref="DockIcon"/>'s target the same way Explorer would.</summary>
     public static class AppLauncher
     {
+        private static bool IsScript(string? path) =>
+            path != null && (path.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
+                          || path.EndsWith(".bat", StringComparison.OrdinalIgnoreCase));
+
         public static bool Launch(DockIcon icon)
         {
             try
@@ -24,6 +28,8 @@ namespace StartDock.Services
 
                 if (!string.IsNullOrWhiteSpace(icon.WorkingDirectory) && Directory.Exists(icon.WorkingDirectory))
                     psi.WorkingDirectory = icon.WorkingDirectory;
+                else if (IsScript(icon.TargetPath) && Path.GetDirectoryName(icon.TargetPath) is { Length: > 0 } scriptFolder)
+                    psi.WorkingDirectory = scriptFolder; // a script runs from its own folder, as when double-clicked
 
                 Process.Start(psi);
                 return true;

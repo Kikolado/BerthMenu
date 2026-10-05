@@ -477,6 +477,12 @@ namespace StartDock.Models
         /// <summary>Rows (the original layout) or Columns.</summary>
         public LayoutDirection LayoutDirection { get; set; } = LayoutDirection.Rows;
 
+        /// <summary>Rows layout: dragging the dock's right edge snaps its width to
+        /// whole columns of icons, so rows end without a gap. Off: the width follows
+        /// the mouse smoothly (handy with Center row alignment, where any leftover
+        /// space is split evenly anyway). The Columns layout never snaps.</summary>
+        public bool SnapDockWidth { get; set; } = true;
+
         /// <summary>Columns layout only: where a column that isn't full sits
         /// vertically. Rows uses IconAlignment instead (which still sets the Recent
         /// sections at the bottom, since those are always rows).</summary>
