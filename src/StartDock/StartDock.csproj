@@ -41,7 +41,7 @@
          standalone. -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.9.4</Version>
+    <Version>0.9.4.1</Version>
     <Company>Roberto Regalado</Company>
     <Product>StartDock</Product>
     <Description>A lightweight, resizable icon-dock replacement for the Windows 11 Start Menu.</Description>

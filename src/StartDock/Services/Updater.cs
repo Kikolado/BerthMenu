@@ -62,9 +62,16 @@ namespace StartDock.Services
         /// still be downloading). Null when up to date or not checked yet.</summary>
         public static Version? AvailableVersion { get; private set; }
 
-        private static void SetStatus(string text)
+        /// <summary>The longer version of Status, for its tooltip (an error's
+        /// details, say). Same as Status when there's nothing more to say.</summary>
+        public static string StatusDetail { get; private set; } = string.Empty;
+
+        // Status is kept short so it fits beside "Check for updates" in Settings
+        // (the version number is already in the Settings footer).
+        private static void SetStatus(string text, string? detail = null)
         {
             Status = text;
+            StatusDetail = detail ?? text;
             StatusChanged?.Invoke();
         }
 
@@ -82,29 +89,32 @@ namespace StartDock.Services
             IsBusy = true;
             try
             {
-                SetStatus("Checking for updates…");
+                SetStatus("Checking…", "Checking for updates…");
                 var release = await GetLatestReleaseAsync();
                 if (release == null || release.Version <= CurrentVersion)
                 {
                     AvailableVersion = null;
-                    SetStatus($"Up to date (StartDock {Display(CurrentVersion)})");
+                    SetStatus("Up to date", $"StartDock {Display(CurrentVersion)} is the newest version.");
                     return false;
                 }
 
                 AvailableVersion = release.Version;
 
-                SetStatus($"Downloading StartDock {Display(release.Version)}…");
+                SetStatus($"Downloading {Display(release.Version)}…", $"Downloading StartDock {Display(release.Version)}…");
                 string path = await DownloadAndVerifyAsync(release);
 
                 ReadyInstallerPath = path;
                 ReadyVersion = release.Version;
-                SetStatus($"StartDock {Display(release.Version)} is ready to install.");
+                SetStatus($"{Display(release.Version)} is ready", $"StartDock {Display(release.Version)} is downloaded and ready to install.");
                 return true;
             }
             catch (Exception ex)
             {
                 Log($"Update check failed: {ex.Message}");
-                SetStatus(quiet ? string.Empty : $"Couldn't check for updates: {ex.Message}");
+                if (quiet)
+                    SetStatus(string.Empty);
+                else
+                    SetStatus("Couldn't check", $"Couldn't check for updates: {ex.Message}");
                 return false;
             }
             finally
@@ -138,10 +148,10 @@ namespace StartDock.Services
         }
 
         public static void MarkInstalling() =>
-            SetStatus($"Installing StartDock {Display(ReadyVersion ?? CurrentVersion)}…");
+            SetStatus($"Installing {Display(ReadyVersion ?? CurrentVersion)}…", $"Installing StartDock {Display(ReadyVersion ?? CurrentVersion)}…");
 
         public static void MarkInstallFailed(string reason) =>
-            SetStatus($"Couldn't start the update: {reason}");
+            SetStatus("Update didn't start", $"Couldn't start the update: {reason}");
 
         // ---- After an update: "StartDock was updated to 0.9" from the tray.
 

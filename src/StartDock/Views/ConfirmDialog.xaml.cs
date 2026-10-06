@@ -23,6 +23,16 @@ namespace StartDock.Views
             return dialog.ShowDialog() == true;
         }
 
+        /// <summary>Just tells (one OK button) — for a short "couldn't do that".</summary>
+        public static void Tell(Window owner, string title, string heading, string message)
+        {
+            var dialog = new ConfirmDialog(title, heading, message, "OK") { Owner = owner };
+            dialog.CancelButton.Visibility = Visibility.Collapsed;
+            dialog.CancelButton.IsDefault = false;
+            dialog.ConfirmButton.IsDefault = true;
+            dialog.ShowDialog();
+        }
+
         private void Confirm_Click(object sender, RoutedEventArgs e) => DialogResult = true;
     }
 }

@@ -580,25 +580,30 @@
                                                   DragLeave="CategoryBanner_DragLeave"
                                                   Drop="CategoryBanner_Drop"
                                                   Tag="{Binding}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
                                                 <Grid.ContextMenu>
                                                     <ContextMenu>
                                                         <MenuItem Header="Rename Category" Click="RenameCategoryMenuItem_Click" Tag="{Binding}"/>
                                                         <MenuItem Header="Remove Category" Click="DeleteCategory_Click" Tag="{Binding}"/>
                                                     </ContextMenu>
                                                 </Grid.ContextMenu>
-                                                <!-- Fold chevron: always shown while folded, otherwise
-                                                     only while the pointer is over the banner. -->
-                                                <TextBlock Grid.Column="0" Text="{Binding ChevronGlyph}"
-                                                           FontFamily="{StaticResource IconFont}" FontSize="9"
-                                                           VerticalAlignment="Center" Margin="2,1,0,0" Width="10"
-                                                           Foreground="{DynamicResource SecondaryTextBrush}"
-                                                           IsHitTestVisible="False">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
+                                                <!-- The name with its fold arrow right beside it: after the
+                                                     name, or before it when names are aligned right (see
+                                                     MainWindow.UpdateBannerChevronPlacement). The arrow always
+                                                     shows while folded, otherwise only while the pointer is
+                                                     over the banner; it keeps its space either way, so the name
+                                                     never moves. -->
+                                                <StackPanel Orientation="Horizontal"
+                                                            HorizontalAlignment="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryBannerHorizontalAlignment}">
+                                                    <StackPanel.Resources>
+                                                        <Style x:Key="BannerChevron" TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="{Binding ChevronGlyph}"/>
+                                                            <Setter Property="FontFamily" Value="{StaticResource IconFont}"/>
+                                                            <Setter Property="FontSize" Value="9"/>
+                                                            <Setter Property="Width" Value="10"/>
+                                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                                            <Setter Property="TextAlignment" Value="Center"/>
+                                                            <Setter Property="IsHitTestVisible" Value="False"/>
+                                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
                                                             <Setter Property="Opacity" Value="0"/>
                                                             <Style.Triggers>
                                                                 <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Grid}}" Value="True">
@@ -609,28 +614,42 @@
                                                                 </DataTrigger>
                                                             </Style.Triggers>
                                                         </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                                <!-- TextAlignment follows the same alignment setting that
-                                                     packs each category's own icon row (see
-                                                     CategoryBannerAlignment in MainWindow.xaml.cs). -->
-                                                <TextBox Grid.Column="1"
-                                                         Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
-                                                         Background="Transparent"
-                                                         BorderThickness="0"
-                                                         FontSize="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryFontSize}"
-                                                         FontWeight="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryNameFontWeight}"
-                                                         Foreground="{DynamicResource PrimaryTextBrush}"
-                                                         TextAlignment="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryBannerAlignment}"
-                                                         Padding="2,0,4,0"
-                                                         VerticalContentAlignment="Center"
-                                                         Cursor="IBeam"
-                                                         IsHitTestVisible="{Binding IsRenaming}"
-                                                         Focusable="{Binding IsRenaming}"
-                                                         ContextMenu="{x:Null}"
-                                                         GotFocus="CategoryNameBox_GotFocus"
-                                                         LostFocus="CategoryNameBox_LostFocus"
-                                                         KeyDown="CategoryNameBox_KeyDown"/>
+                                                    </StackPanel.Resources>
+                                                    <TextBlock Margin="0,1,1,0">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock" BasedOn="{StaticResource BannerChevron}">
+                                                                <Setter Property="Visibility" Value="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=BannerChevronBeforeVisibility}"/>
+                                                                <Style.Triggers>
+                                                                    <!-- Centered: just reserved space, so the name stays centered. -->
+                                                                    <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=BannerChevronBeforeIsSpacer}" Value="True">
+                                                                        <Setter Property="Visibility" Value="Hidden"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                    <!-- Sized to the name, with the same alignment setting
+                                                         deciding where the pair sits (CategoryBannerAlignment). -->
+                                                    <TextBox Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                                                             MinWidth="20"
+                                                             Background="Transparent"
+                                                             BorderThickness="0"
+                                                             FontSize="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryFontSize}"
+                                                             FontWeight="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryNameFontWeight}"
+                                                             Foreground="{DynamicResource PrimaryTextBrush}"
+                                                             TextAlignment="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryBannerAlignment}"
+                                                             Padding="4,0"
+                                                             VerticalContentAlignment="Center"
+                                                             Cursor="IBeam"
+                                                             IsHitTestVisible="{Binding IsRenaming}"
+                                                             Focusable="{Binding IsRenaming}"
+                                                             ContextMenu="{x:Null}"
+                                                             GotFocus="CategoryNameBox_GotFocus"
+                                                             LostFocus="CategoryNameBox_LostFocus"
+                                                             KeyDown="CategoryNameBox_KeyDown"/>
+                                                    <TextBlock Style="{StaticResource BannerChevron}" Margin="1,1,0,0"
+                                                               Visibility="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=BannerChevronAfterVisibility}"/>
+                                                </StackPanel>
                                             </Grid>
 
                                             <Border x:Name="CategoryDropBelow" Grid.Row="2"

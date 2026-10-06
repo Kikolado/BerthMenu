@@ -689,7 +689,7 @@
                         ToolTip="Re-reads your installed apps — for an app that isn't showing up in search or the Add picker, like one you just installed."/>
                 <Button Content="Cancel" Width="90" Padding="0,4" Margin="0,0,8,0" Click="Cancel_Click"/>
                 <Button Content="Apply" Width="90" Padding="0,4" Margin="0,0,8,0" Click="Apply_Click"/>
-                <Button Content="Save" Width="90" Padding="0,4" Click="Save_Click" IsDefault="True"/>
+                <Button Content="Save &amp; Close" MinWidth="110" Padding="12,4" Click="Save_Click" IsDefault="True"/>
             </StackPanel>
         </Grid>
     </Grid>

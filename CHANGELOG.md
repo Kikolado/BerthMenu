@@ -4,6 +4,14 @@
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
 
+## 0.9.4.1
+
+- Settings: "Save" is now "Save & Close". Closing Settings any other way with changes you haven't saved asks whether to save them or close without saving.
+- Fixed: the dock flickered the first time it opened after StartDock started, and could show a frame in the wrong place before sliding in.
+- Settings → Startup: the update status is shorter ("Up to date"), so it's no longer cut off. Hover over it for the details.
+- A category's fold arrow now sits right beside its name (before it when names are aligned right), so the name no longer shifts over.
+- Fixed: right-click → Open file location did nothing for apps pinned from the app list, and the File Explorer window it opened could end up hidden behind the dock. It now shows the app's program (or the program a shortcut points to) and closes the dock. It's no longer offered for Store apps, websites or Settings pages, which have no file to show.
+
 ## 0.9.4
 
 - Dark theme now covers right-click menus, Settings dropdowns, buttons and tooltips.

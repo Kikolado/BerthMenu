@@ -151,7 +151,7 @@ namespace StartDock
             _trayIconService.OpenSettingsRequested += () => _dockWindow.OpenSettings();
             _trayIconService.OpenNativeStartMenuRequested += AppLauncher.OpenNativeStartMenu;
             _trayIconService.RestartAsAdminRequested += () => RestartAsAdministrator();
-            _trayIconService.ExitRequested += Shutdown;
+            _trayIconService.ExitRequested += ExitApp;
             _trayIconService.WhatsNewRequested += Views.WhatsNewWindow.ShowOrActivate;
             _trayIconService.TipsRequested += Views.WhatsNewWindow.ShowTips;
             _trayIconService.ReportProblemRequested += Changelog.ReportProblem;
@@ -270,7 +270,7 @@ namespace StartDock
                 return;
             }
 
-            Shutdown();
+            ExitApp();
         }
 
         /// <summary>Relaunches this same .exe elevated (via the "runas" shell verb,
@@ -312,7 +312,7 @@ namespace StartDock
                 try { _singleInstanceMutex?.ReleaseMutex(); } catch { /* already released, or never owned — fine either way */ }
 
                 System.Diagnostics.Process.Start(psi);
-                Shutdown();
+                ExitApp();
                 return true;
             }
             catch
@@ -345,7 +345,7 @@ namespace StartDock
                     UseShellExecute = false,
                     Arguments = RestartArg,
                 });
-                Shutdown();
+                ExitApp();
             }
             catch
             {
@@ -353,6 +353,18 @@ namespace StartDock
                 MessageBox.Show("The backup was restored, but StartDock couldn't restart itself. Exit it from the tray icon and start it again to load it.",
                     "StartDock", MessageBoxButton.OK, MessageBoxImage.Information);
             }
+        }
+
+        /// <summary>True once StartDock is closing for good (Exit, an update, a
+        /// restart). Windows that would otherwise ask something on closing — Settings
+        /// with unsaved changes — just close.</summary>
+        public static bool IsExiting { get; private set; }
+
+        /// <summary>Shutdown, after marking IsExiting.</summary>
+        internal void ExitApp()
+        {
+            IsExiting = true;
+            Shutdown();
         }
 
         /// <summary>Passed to the new copy by Restart, so it waits for this one to close.</summary>

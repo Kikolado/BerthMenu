@@ -96,6 +96,11 @@ namespace StartDock.Views
             Services.ThemeService.ApplyTitleBarTheme(this);
             _original = current;
             _configService = configService;
+            Closing += SettingsWindow_Closing;
+            // Taken once everything is filled in, so "unchanged" means exactly what
+            // was shown when Settings opened.
+            Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(() => _savedSnapshot = Snapshot()),
+                System.Windows.Threading.DispatcherPriority.ContextIdle);
 
             // From the csproj's <Version> — the one place to bump it.
             // Shows a third number only when there is one (0.9, 0.9.1).
@@ -505,7 +510,7 @@ namespace StartDock.Views
         private void UpdateUpdaterStatus()
         {
             UpdateStatusText.Text = Updater.Status;
-            UpdateStatusText.ToolTip = string.IsNullOrEmpty(Updater.Status) ? null : Updater.Status;
+            UpdateStatusText.ToolTip = string.IsNullOrEmpty(Updater.StatusDetail) ? null : Updater.StatusDetail;
             CheckUpdatesButton.Content = Updater.ReadyInstallerPath != null ? "Update now" : "Check for updates";
             CheckUpdatesButton.IsEnabled = !Updater.IsBusy;
 
@@ -579,14 +584,16 @@ namespace StartDock.Views
             if (!TryBuildResult())
                 return;
 
-            DialogResult = true;
-            Close();
+            DialogResult = true; // closes the window
         }
 
         private void Apply_Click(object sender, RoutedEventArgs e)
         {
             if (TryBuildResult() && Result != null)
+            {
                 Applied?.Invoke(Result);
+                _savedSnapshot = Snapshot(); // applied — nothing unsaved now
+            }
         }
 
         /// <summary>Re-reads the list of installed apps from Windows, for an app that
@@ -634,7 +641,16 @@ namespace StartDock.Views
 
             ValidationErrorText.Visibility = Visibility.Collapsed;
 
-            Result = new AppConfig
+            Result = BuildFromControls();
+
+            return true;
+        }
+
+        /// <summary>The settings as the controls currently show them (no checks).</summary>
+        private AppConfig BuildFromControls()
+        {
+            bool customSelected = HotkeyCustomRadio.IsChecked == true;
+            return new AppConfig
             {
                 Categories = _original.Categories, // category/icon list is managed from the dock itself, not this dialog
                 Hotkey = customSelected
@@ -722,9 +738,56 @@ namespace StartDock.Views
                     _ => TextColorMode.Default,
                 },
             };
-
-            return true;
         }
+
+        // ---- Unsaved changes: closing without Save & Close asks first.
+
+        // The settings as last saved (opened, or Applied), to compare against.
+        private string _savedSnapshot = string.Empty;
+        private bool _closeWithoutAsking;
+
+        private string Snapshot()
+        {
+            try
+            {
+                var config = BuildFromControls();
+                config.Categories = new System.Collections.Generic.List<Category>(); // not edited here
+                return System.Text.Json.JsonSerializer.Serialize(config);
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private bool HasUnsavedChanges => _savedSnapshot.Length > 0 && Snapshot() != _savedSnapshot;
+
+        private void SettingsWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (_closeWithoutAsking || DialogResult == true || App.IsExiting || !HasUnsavedChanges)
+                return;
+
+            switch (UnsavedChangesDialog.Ask(this))
+            {
+                case UnsavedChangesDialog.Choice.Save:
+                    if (!TryBuildResult())
+                    {
+                        e.Cancel = true; // something needs fixing first — it's shown
+                        return;
+                    }
+                    // Can't set DialogResult while closing; hand the result over the
+                    // same way Apply does.
+                    if (Result != null)
+                        Applied?.Invoke(Result);
+                    break;
+                case UnsavedChangesDialog.Choice.Discard:
+                    break;
+                default:
+                    e.Cancel = true; // keep editing
+                    break;
+            }
+        }
+
 
         /// <summary>Same relaunch the tray menu's "Restart as Admin" does (see
         /// App.RestartAsAdministrator). Left open on purpose while the UAC prompt
@@ -756,6 +819,7 @@ namespace StartDock.Views
 
             // Everything (pinned apps, layout, hotkey…) is loaded fresh from the
             // restored file, the same way as when StartDock starts.
+            _closeWithoutAsking = true;
             if (System.Windows.Application.Current is App app)
                 app.Restart();
         }
@@ -766,10 +830,8 @@ namespace StartDock.Views
                 app.RestartAsAdministrator();
         }
 
-        private void Cancel_Click(object sender, RoutedEventArgs e)
-        {
-            DialogResult = false;
-            Close();
-        }
+        /// <summary>Cancel: closes; asks first if something was changed (see
+        /// SettingsWindow_Closing).</summary>
+        private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
     }
 }

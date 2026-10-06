@@ -208,6 +208,65 @@ namespace StartDock.Views
             // underway) by the time the user's first search or "+" tile click needs
             // them — instead of paying that cost right there, mid-interaction.
             _ = WarmInstalledAppsCacheAsync();
+
+            // Once startup has settled: draw the dock once, invisibly, so the first
+            // real open looks like every later one (see WarmUpWindow).
+            Dispatcher.BeginInvoke(new Action(WarmUpWindow), DispatcherPriority.ApplicationIdle);
+        }
+
+        /// <summary>
+        /// The first time a window is shown, Windows has to create it and WPF has to
+        /// build and draw every tile from scratch — and until that first drawing is
+        /// done the window is shown empty, which is the flicker on the first open
+        /// after StartDock starts. Later opens reuse the finished window. This does
+        /// that first show off-screen, fully transparent and without taking focus,
+        /// lets one frame draw, and hides it again, so the first real open is as
+        /// smooth as the rest.
+        /// </summary>
+        private void WarmUpWindow()
+        {
+            if (Visibility == Visibility.Visible)
+                return; // already opened for real
+
+            double left = Left, top = Top;
+            bool showActivated = ShowActivated;
+            try
+            {
+                new WindowInteropHelper(this).EnsureHandle();
+                _warmingUp = true;
+                ShowActivated = false;
+                Opacity = 0;
+                Left = -32000;
+                Top = -32000;
+                Show();
+                UpdateLayout();
+            }
+            catch
+            {
+                FinishWarmUp(left, top, showActivated);
+                return;
+            }
+
+            // Hide again after a frame has been drawn.
+            Dispatcher.BeginInvoke(new Action(() => FinishWarmUp(left, top, showActivated)), DispatcherPriority.ContextIdle);
+        }
+
+        private bool _warmingUp;
+
+        private void FinishWarmUp(double left, double top, bool showActivated)
+        {
+            if (!_warmingUp)
+                return;
+            _warmingUp = false;
+            if (Visibility == Visibility.Visible && Left <= -30000)
+                Hide();
+            ShowActivated = showActivated;
+            if (Left <= -30000)
+            {
+                Left = left;
+                Top = top;
+            }
+            Opacity = 1;
         }
 
         /// <summary>Row alignment for every category's icons — a plain
@@ -334,11 +393,68 @@ namespace StartDock.Views
         /// one — those stay rows in both layouts.</summary>
         public static readonly DependencyProperty CategoryBannerAlignmentProperty =
             DependencyProperty.Register(nameof(CategoryBannerAlignment), typeof(TextAlignment), typeof(MainWindow),
-                new FrameworkPropertyMetadata(TextAlignment.Left));
+                new FrameworkPropertyMetadata(TextAlignment.Left, (d, _) => ((MainWindow)d).UpdateBannerChevronPlacement()));
         public TextAlignment CategoryBannerAlignment
         {
             get => (TextAlignment)GetValue(CategoryBannerAlignmentProperty);
             set => SetValue(CategoryBannerAlignmentProperty, value);
+        }
+
+        // The category name and its fold arrow sit together where the alignment puts
+        // them: the arrow right after the name, or right before it when the name is
+        // aligned right (so the arrow never pushes the name away from the edge).
+        // Centered, an invisible arrow-sized space on the left keeps the name centered.
+        public static readonly DependencyProperty CategoryBannerHorizontalAlignmentProperty =
+            DependencyProperty.Register(nameof(CategoryBannerHorizontalAlignment), typeof(HorizontalAlignment), typeof(MainWindow),
+                new FrameworkPropertyMetadata(HorizontalAlignment.Left));
+        public HorizontalAlignment CategoryBannerHorizontalAlignment
+        {
+            get => (HorizontalAlignment)GetValue(CategoryBannerHorizontalAlignmentProperty);
+            set => SetValue(CategoryBannerHorizontalAlignmentProperty, value);
+        }
+
+        public static readonly DependencyProperty BannerChevronBeforeVisibilityProperty =
+            DependencyProperty.Register(nameof(BannerChevronBeforeVisibility), typeof(Visibility), typeof(MainWindow),
+                new FrameworkPropertyMetadata(Visibility.Collapsed));
+        public Visibility BannerChevronBeforeVisibility
+        {
+            get => (Visibility)GetValue(BannerChevronBeforeVisibilityProperty);
+            set => SetValue(BannerChevronBeforeVisibilityProperty, value);
+        }
+
+        public static readonly DependencyProperty BannerChevronAfterVisibilityProperty =
+            DependencyProperty.Register(nameof(BannerChevronAfterVisibility), typeof(Visibility), typeof(MainWindow),
+                new FrameworkPropertyMetadata(Visibility.Visible));
+        public Visibility BannerChevronAfterVisibility
+        {
+            get => (Visibility)GetValue(BannerChevronAfterVisibilityProperty);
+            set => SetValue(BannerChevronAfterVisibilityProperty, value);
+        }
+
+        /// <summary>Whether the before-the-name arrow slot is a real arrow (aligned
+        /// right) or just reserved space (centered). See the XAML's banner.</summary>
+        public static readonly DependencyProperty BannerChevronBeforeIsSpacerProperty =
+            DependencyProperty.Register(nameof(BannerChevronBeforeIsSpacer), typeof(bool), typeof(MainWindow),
+                new FrameworkPropertyMetadata(false));
+        public bool BannerChevronBeforeIsSpacer
+        {
+            get => (bool)GetValue(BannerChevronBeforeIsSpacerProperty);
+            set => SetValue(BannerChevronBeforeIsSpacerProperty, value);
+        }
+
+        private void UpdateBannerChevronPlacement()
+        {
+            var alignment = CategoryBannerAlignment;
+            CategoryBannerHorizontalAlignment = alignment switch
+            {
+                TextAlignment.Right => HorizontalAlignment.Right,
+                TextAlignment.Center => HorizontalAlignment.Center,
+                _ => HorizontalAlignment.Left,
+            };
+            bool right = alignment == TextAlignment.Right;
+            BannerChevronBeforeVisibility = right || alignment == TextAlignment.Center ? Visibility.Visible : Visibility.Collapsed;
+            BannerChevronBeforeIsSpacer = alignment == TextAlignment.Center;
+            BannerChevronAfterVisibility = right ? Visibility.Collapsed : Visibility.Visible;
         }
 
         /// <summary>Same RelativeSource-binding pattern as IconAlignment above —
@@ -2012,6 +2128,12 @@ namespace StartDock.Views
             if (_config.ShowTaskbarOverFullscreen)
                 _fullscreenTaskbar.RaiseOnMonitorAtCursor();
 
+            // Started before the window shows, so its first frame is already the
+            // animation's starting point (slid off a little, or faded out). Starting
+            // it after Show() showed one frame at the resting position first, and
+            // then the dock jumped back to slide in — a visible flicker.
+            BeginAppearAnimation();
+
             Visibility = Visibility.Visible;
             Show();
             Activate();
@@ -2026,8 +2148,6 @@ namespace StartDock.Views
             // by Activate() right after, which is exactly what made "press Win and just
             // start typing" land in the search box inconsistently rather than every time.
             UpdateSearchBarVisibility();
-
-            BeginAppearAnimation();
 
             // After the dock is up, so neither delays it appearing.
             SnapWidthToGridSoon();
@@ -4705,25 +4825,102 @@ namespace StartDock.Views
             }
         }
 
+        /// <summary>Right-click → Open file location: opens File Explorer with the
+        /// tile's file selected, and closes the dock so the window isn't hidden
+        /// behind it (the dock stays on top of everything).
+        ///  - A program, script, file or folder: that item.
+        ///  - A shortcut (.lnk): the program it points to, like "Open file location"
+        ///    on a shortcut in File Explorer.
+        ///  - An installed app pinned from the app list: its program, or else its
+        ///    Start menu shortcut. Store apps have no folder to show, so the menu
+        ///    item isn't offered for them (DockIconViewModel.CanOpenLocation).</summary>
         private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is MenuItem { Tag: DockIconViewModel vm })
-            {
-                // Store/UWP entries (and anything else added via the installed-apps
-                // picker) point at a virtual "shell:AppsFolder\..." id, not a real file
-                // on disk — there's no folder to reveal for those.
-                if (vm.Model.TargetPath.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
-                    return;
+            if (sender is not MenuItem { Tag: DockIconViewModel vm })
+                return;
 
+            string? path = LocationToShow(vm);
+            if (path == null)
+            {
+                _dialogOpen = true;
                 try
                 {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{vm.Model.TargetPath}\"")
-                    {
-                        UseShellExecute = true,
-                    });
+                    ConfirmDialog.Tell(this, "Open file location", $"Couldn't find where \"{vm.Name}\" is on this PC.",
+                        "It may have been moved or uninstalled.");
                 }
-                catch { /* ignore */ }
+                finally
+                {
+                    _dialogOpen = false;
+                    Activate();
+                }
+                return;
             }
+
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"")
+                {
+                    UseShellExecute = true,
+                });
+                HideDock();
+            }
+            catch
+            {
+                // Explorer couldn't start — nothing more to do.
+            }
+        }
+
+        /// <summary>The file or folder Open file location selects, or null if it
+        /// can't be found.</summary>
+        private static string? LocationToShow(DockIconViewModel vm)
+        {
+            string target = Environment.ExpandEnvironmentVariables(vm.Model.TargetPath ?? string.Empty);
+            const string appsFolder = "shell:AppsFolder\\";
+
+            if (target.StartsWith(appsFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                string id = target.Substring(appsFolder.Length);
+                if (id.Contains('!'))
+                    return null; // a Store app
+
+                string normalized = AppUsageService.NormalizeId(id);
+                if (Path.IsPathRooted(normalized) && (File.Exists(normalized) || Directory.Exists(normalized)))
+                    return normalized;
+                if (ShortcutResolver.AppsFolderProgram(id) is { } program && File.Exists(program))
+                    return program;
+                return FindStartMenuShortcut(vm.Name);
+            }
+
+            if (target.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)
+                && ShortcutResolver.Shortcut(target) is { } link && File.Exists(link.Path))
+                return link.Path;
+
+            return File.Exists(target) || Directory.Exists(target) ? target : null;
+        }
+
+        /// <summary>A Start menu shortcut named <paramref name="name"/> (yours or all
+        /// users'), for an installed app whose program couldn't be found directly.</summary>
+        private static string? FindStartMenuShortcut(string name)
+        {
+            foreach (var folder in new[] { Environment.SpecialFolder.Programs, Environment.SpecialFolder.CommonPrograms })
+            {
+                try
+                {
+                    string root = Environment.GetFolderPath(folder);
+                    if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+                        continue;
+                    foreach (string lnk in Directory.EnumerateFiles(root, "*.lnk", SearchOption.AllDirectories))
+                    {
+                        if (string.Equals(Path.GetFileNameWithoutExtension(lnk), name, StringComparison.OrdinalIgnoreCase))
+                            return lnk;
+                    }
+                }
+                catch
+                {
+                    // A folder we can't read — try the next.
+                }
+            }
+            return null;
         }
 
         // ---------------------------------------------------------------

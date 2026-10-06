@@ -77,8 +77,22 @@ namespace StartDock.Views
         public bool IsRemoteDesktop =>
             !IsFolder && (Model.TargetPath ?? string.Empty).EndsWith(".rdp", System.StringComparison.OrdinalIgnoreCase);
 
-        /// <summary>Right-click → Open file location.</summary>
-        public bool CanOpenLocation => !IsFolder && !IsAction && !IsWebsite;
+        /// <summary>Right-click → Open file location. Only for things that are on
+        /// disk: not websites, Settings pages or Store apps (whose id contains a "!").</summary>
+        public bool CanOpenLocation
+        {
+            get
+            {
+                if (IsFolder || IsAction || IsWebsite)
+                    return false;
+                string target = Model.TargetPath ?? string.Empty;
+                if (target.StartsWith("shell:AppsFolder\\", System.StringComparison.OrdinalIgnoreCase))
+                    return !target.Contains('!');
+                // Settings pages, shell: folders and other addresses have no file.
+                int colon = target.IndexOf(':');
+                return !(colon > 1 && !target.StartsWith("%"));
+            }
+        }
 
         private string? _shortcutBadge;
         /// <summary>"1"–"9" while Alt is held in the dock: Alt+that number opens
