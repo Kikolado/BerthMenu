@@ -151,6 +151,16 @@ namespace StartDock.Services
 
         public void Save(AppConfig config)
         {
+            if (SavesSuspended)
+                return; // a backup was just restored and StartDock is restarting
+            try
+            {
+                BackupBeforeSave();
+            }
+            catch
+            {
+                // A failed backup never stops the save itself.
+            }
             try
             {
                 var json = JsonSerializer.Serialize(config, JsonOptions);
@@ -166,6 +176,132 @@ namespace StartDock.Services
             {
                 // Best-effort: if we truly can't write config (e.g. locked-down profile),
                 // the app should keep running with the in-memory settings for this session.
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Automatic backups — Settings → Startup → "Restore a backup…"
+        // ---------------------------------------------------------------
+        //
+        // Before a change is saved, a copy of config.json as it was is kept in
+        // %AppData%\StartDock\Backups — at most one a day, so a day's worth of
+        // tweaking costs one copy, and the copy is how things were before that
+        // day's first change. The newest BackupsToKeep are kept. A copy identical
+        // to the newest one isn't kept twice. Restoring first backs up the current
+        // settings too ("Before restoring"), so a restore can itself be undone.
+        //
+        // Backups hold the settings and pinned tiles (config.json). Icons and the
+        // background picture live in their own folders: an icon that's gone by
+        // then is simply extracted again.
+
+        public string BackupFolder => Path.Combine(AppDataFolder, "Backups");
+        private const int BackupsToKeep = 10;
+        private const string BeforeRestoreNote = "before-restore";
+
+        /// <summary>Set once a backup has been restored: from then on nothing
+        /// (this copy shutting down, say) may write over the restored file.</summary>
+        public bool SavesSuspended { get; private set; }
+
+        public sealed record Backup(string FilePath, DateTime Taken, bool BeforeRestore, int Categories, int Tiles);
+
+        private void BackupBeforeSave()
+        {
+            if (!File.Exists(ConfigFilePath))
+                return;
+            var newest = ListBackupFiles().FirstOrDefault();
+            if (newest != null && DateTime.Now - File.GetLastWriteTime(newest) < TimeSpan.FromHours(24))
+                return;
+            TakeBackup(note: null);
+        }
+
+        private void TakeBackup(string? note)
+        {
+            if (!File.Exists(ConfigFilePath))
+                return;
+            Directory.CreateDirectory(BackupFolder);
+
+            var newest = ListBackupFiles().FirstOrDefault();
+            if (note == null && newest != null && FilesEqual(newest, ConfigFilePath))
+            {
+                File.SetLastWriteTime(newest, DateTime.Now); // still current — counts as today's
+                return;
+            }
+
+            string name = $"config-{DateTime.Now:yyyyMMdd-HHmmss}" + (note != null ? "-" + note : string.Empty) + ".json";
+            string path = Path.Combine(BackupFolder, name);
+            File.Copy(ConfigFilePath, path, overwrite: true);
+            File.SetLastWriteTime(path, DateTime.Now);
+
+            foreach (string old in ListBackupFiles().Skip(BackupsToKeep))
+            {
+                try { File.Delete(old); } catch { /* try again next time */ }
+            }
+        }
+
+        /// <summary>Backup files, newest first.</summary>
+        private string[] ListBackupFiles()
+        {
+            if (!Directory.Exists(BackupFolder))
+                return Array.Empty<string>();
+            return Directory.GetFiles(BackupFolder, "config-*.json")
+                .OrderByDescending(f => File.GetLastWriteTime(f))
+                .ToArray();
+        }
+
+        private static bool FilesEqual(string a, string b)
+        {
+            var fa = new FileInfo(a);
+            var fb = new FileInfo(b);
+            return fa.Length == fb.Length && File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b));
+        }
+
+        /// <summary>The backups, newest first, with how many categories and tiles
+        /// each has (to help tell them apart). Unreadable files are left out.</summary>
+        public System.Collections.Generic.List<Backup> ListBackups()
+        {
+            var result = new System.Collections.Generic.List<Backup>();
+            foreach (string file in ListBackupFiles())
+            {
+                try
+                {
+                    var config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(file), JsonOptions);
+                    if (config == null)
+                        continue;
+                    int tiles = config.Categories.Sum(c => c.Icons.Sum(i => i.Children is { Count: > 0 } kids ? kids.Count : 1));
+                    result.Add(new Backup(file, File.GetLastWriteTime(file),
+                        Path.GetFileNameWithoutExtension(file).EndsWith(BeforeRestoreNote, StringComparison.OrdinalIgnoreCase),
+                        config.Categories.Count, tiles));
+                }
+                catch
+                {
+                    // Damaged — not offered.
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Makes <paramref name="backup"/> the current config.json, after
+        /// backing up the current one. StartDock must restart afterwards to load it
+        /// (App.Restart); until then nothing else is saved. False if the backup
+        /// can't be read or written.</summary>
+        public bool RestoreBackup(Backup backup)
+        {
+            try
+            {
+                string json = File.ReadAllText(backup.FilePath);
+                if (JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) == null)
+                    return false;
+
+                TakeBackup(BeforeRestoreNote);
+                File.WriteAllText(ConfigFilePath + ".tmp", json);
+                File.Copy(ConfigFilePath + ".tmp", ConfigFilePath, overwrite: true);
+                File.Delete(ConfigFilePath + ".tmp");
+                SavesSuspended = true;
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 

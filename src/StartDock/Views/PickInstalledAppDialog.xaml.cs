@@ -29,6 +29,9 @@ namespace StartDock.Views
         /// <summary>True when the user clicked "Add a folder" instead.</summary>
         public bool BrowseFolderInstead { get; private set; }
 
+        /// <summary>True when the user clicked "Add a website" instead.</summary>
+        public bool BrowseWebsiteInstead { get; private set; }
+
         public PickInstalledAppDialog(ConfigService configService)
         {
             InitializeComponent();
@@ -121,6 +124,13 @@ namespace StartDock.Views
         private void BrowseFolderInstead_Click(object sender, RoutedEventArgs e)
         {
             BrowseFolderInstead = true;
+            DialogResult = false;
+            Close();
+        }
+
+        private void BrowseWebsiteInstead_Click(object sender, RoutedEventArgs e)
+        {
+            BrowseWebsiteInstead = true;
             DialogResult = false;
             Close();
         }

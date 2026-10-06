@@ -31,6 +31,7 @@ namespace StartDock
             base.OnStartup(e);
 
             bool alreadyRelaunched = Array.IndexOf(e.Args, ElevatedRelaunchArg) >= 0;
+            bool restarted = Array.IndexOf(e.Args, RestartArg) >= 0;
 
             // Single-instance check by actually *acquiring* the mutex, not by asking
             // whether this process created it. The old check (initiallyOwned + the
@@ -48,7 +49,7 @@ namespace StartDock
                 _singleInstanceMutex = new Mutex(initiallyOwned: false, "Global\\StartDock-SingleInstance-9F3B2C4E");
                 try
                 {
-                    acquired = _singleInstanceMutex.WaitOne(alreadyRelaunched ? TimeSpan.FromSeconds(10) : TimeSpan.Zero);
+                    acquired = _singleInstanceMutex.WaitOne(alreadyRelaunched || restarted ? TimeSpan.FromSeconds(10) : TimeSpan.Zero);
                 }
                 catch (AbandonedMutexException)
                 {
@@ -121,6 +122,12 @@ namespace StartDock
 
             _overlayService = new StartButtonOverlayService(_configService.AppDataFolder);
             _overlayService.StartButtonClicked += () => _dockWindow.ToggleVisibility();
+            // A file dragged over the Start button: open the dock so it can be dropped in.
+            _overlayService.StartButtonDragHover += () =>
+            {
+                if (_dockWindow.Visibility != Visibility.Visible)
+                    _dockWindow.ShowDock();
+            };
             if (Config.ReplaceStartButton)
                 TryStart("Start-button overlay", _overlayService.Start);
 
@@ -145,10 +152,15 @@ namespace StartDock
             _trayIconService.OpenNativeStartMenuRequested += AppLauncher.OpenNativeStartMenu;
             _trayIconService.RestartAsAdminRequested += () => RestartAsAdministrator();
             _trayIconService.ExitRequested += Shutdown;
+            _trayIconService.WhatsNewRequested += Views.WhatsNewWindow.ShowOrActivate;
+            _trayIconService.TipsRequested += Views.WhatsNewWindow.ShowTips;
+            _trayIconService.ReportProblemRequested += Changelog.ReportProblem;
             _trayIconService.Show();
 
             if (Updater.TakeJustUpdatedVersion() is { } updatedTo)
-                _trayIconService.ShowNotification("StartDock updated", $"You're now on StartDock {Updater.Display(updatedTo)}.");
+                _trayIconService.ShowNotification("StartDock updated",
+                    $"You're now on StartDock {Updater.Display(updatedTo)}. Click to see what's new.",
+                    Views.WhatsNewWindow.ShowOrActivate);
             StartUpdateChecks();
         }
 
@@ -314,6 +326,37 @@ namespace StartDock
                 return false;
             }
         }
+
+        /// <summary>Starts a fresh copy of StartDock and closes this one — after a
+        /// settings backup is restored (Settings → Restore a backup…), so everything
+        /// is loaded from the restored file. Keeps this copy's admin rights, if any.</summary>
+        internal void Restart()
+        {
+            try
+            {
+                string? exePath = Environment.ProcessPath;
+                if (string.IsNullOrEmpty(exePath))
+                    return;
+                // Released first, as in RestartAsAdministrator; the new copy also
+                // waits a few seconds for it (RestartArg).
+                try { _singleInstanceMutex?.ReleaseMutex(); } catch { /* already released */ }
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exePath)
+                {
+                    UseShellExecute = false,
+                    Arguments = RestartArg,
+                });
+                Shutdown();
+            }
+            catch
+            {
+                try { _singleInstanceMutex?.WaitOne(0); } catch { /* best effort */ }
+                MessageBox.Show("The backup was restored, but StartDock couldn't restart itself. Exit it from the tray icon and start it again to load it.",
+                    "StartDock", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        /// <summary>Passed to the new copy by Restart, so it waits for this one to close.</summary>
+        private const string RestartArg = "--restart";
 
         /// <summary>Passed to the elevated copy by RestartAsAdministrator, so that
         /// copy never tries AppConfig.StartAsAdmin's auto-elevation again.</summary>

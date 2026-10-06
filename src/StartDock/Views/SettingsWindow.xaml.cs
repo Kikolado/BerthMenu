@@ -130,6 +130,7 @@ namespace StartDock.Views
             Updater.StatusChanged += UpdateUpdaterStatus;
             Closed += (_, _) => Updater.StatusChanged -= UpdateUpdaterStatus;
             UpdateUpdaterStatus();
+            UpdateBackupStatus();
             AdminStatusText.Text = App.IsElevated ? "Running as Admin" : "Not running as Admin";
             RestartAsAdminButton.IsEnabled = !App.IsElevated;
             ThemeCombo.SelectedIndex = current.Theme switch
@@ -191,6 +192,8 @@ namespace StartDock.Views
             SearchFilesCheck.IsChecked = current.SearchFiles;
             SearchCalculatorCheck.IsChecked = current.SearchCalculator;
             SearchWebCheck.IsChecked = current.SearchWeb;
+            SearchRunCheck.IsChecked = current.SearchRun;
+            ShowRunningIndicatorCheck.IsChecked = current.ShowRunningIndicator;
             WebSearchEngineCombo.SelectedIndex = (int)current.WebSearchEngine; // items ordered to match WebSearchEngine
             HideCategoryBannersCheck.IsChecked = current.HideCategoryBanners;
             HideIconNamesCheck.IsChecked = current.HideIconNames;
@@ -526,6 +529,12 @@ namespace StartDock.Views
                 ((App)Application.Current).InstallUpdate();
         }
 
+        private void WhatsNew_Click(object sender, MouseButtonEventArgs e) =>
+            WhatsNewWindow.ShowOrActivate(this);
+
+        private void Tips_Click(object sender, MouseButtonEventArgs e) =>
+            WhatsNewWindow.ShowTips(this);
+
         private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
         {
             if (Updater.ReadyInstallerPath == null)
@@ -673,6 +682,8 @@ namespace StartDock.Views
                 SearchFiles = SearchFilesCheck.IsChecked == true,
                 SearchCalculator = SearchCalculatorCheck.IsChecked == true,
                 SearchWeb = SearchWebCheck.IsChecked == true,
+                SearchRun = SearchRunCheck.IsChecked == true,
+                ShowRunningIndicator = ShowRunningIndicatorCheck.IsChecked == true,
                 WebSearchEngine = (WebSearchEngine)Math.Max(0, WebSearchEngineCombo.SelectedIndex),
                 HideCategoryBanners = HideCategoryBannersCheck.IsChecked == true,
                 HideIconNames = HideIconNamesCheck.IsChecked == true,
@@ -719,6 +730,36 @@ namespace StartDock.Views
         /// App.RestartAsAdministrator). Left open on purpose while the UAC prompt
         /// is up: if it's declined, this window is still here exactly as it was;
         /// if it's accepted, the app's own Shutdown closes it.</summary>
+        // ---- Settings backups (see ConfigService)
+
+        private void UpdateBackupStatus()
+        {
+            var backups = _configService.ListBackups();
+            BackupStatusText.Text = backups.Count == 0
+                ? "No backups yet"
+                : $"Last backup: {RestoreBackupDialog.Describe(backups[0].Taken)}";
+            RestoreBackupButton.IsEnabled = backups.Count > 0;
+        }
+
+        private void RestoreBackup_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new RestoreBackupDialog(_configService.ListBackups()) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.Selected == null)
+                return;
+
+            if (!_configService.RestoreBackup(dialog.Selected))
+            {
+                MessageBox.Show(this, "That backup couldn't be restored. Your current settings weren't changed.",
+                    "StartDock", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Everything (pinned apps, layout, hotkey…) is loaded fresh from the
+            // restored file, the same way as when StartDock starts.
+            if (System.Windows.Application.Current is App app)
+                app.Restart();
+        }
+
         private void RestartAsAdmin_Click(object sender, RoutedEventArgs e)
         {
             if (System.Windows.Application.Current is App app)

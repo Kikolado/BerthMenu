@@ -24,5 +24,8 @@ namespace StartDock.Models
         public string Name { get; set; } = "New category";
 
         public List<DockIcon> Icons { get; set; } = new();
+
+        /// <summary>Folded down to just its name (click the name to toggle).</summary>
+        public bool Collapsed { get; set; }
     }
 }

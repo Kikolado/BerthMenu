@@ -13,6 +13,7 @@
         Visibility="Hidden"
         Deactivated="Window_Deactivated"
         PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewKeyUp="Window_PreviewKeyUp"
         PreviewTextInput="Window_PreviewTextInput">
 
     <Window.Resources>
@@ -60,6 +61,21 @@
             <Grid Margin="4">
             <Border x:Name="TileBg" CornerRadius="4" Background="Transparent" IsHitTestVisible="False"
                     Opacity="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=IconTileOpacity}"/>
+            <!-- Running-app indicator (AppConfig.ShowRunningIndicator): a short accent
+                 bar in the gap under the tile, like the taskbar's. Set by
+                 MainWindow.RefreshRunningIndicators. -->
+            <Border Width="14" Height="3" CornerRadius="1.5"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,-3.5"
+                    IsHitTestVisible="False" Background="{DynamicResource AccentBrush}"
+                    Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}"/>
+            <!-- Alt+1–9 number, shown while Alt is held (MainWindow.ShowShortcutBadges). -->
+            <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="1"
+                    MinWidth="16" Height="16" Padding="3,0" CornerRadius="3"
+                    Background="{DynamicResource AccentBrush}" IsHitTestVisible="False"
+                    Visibility="{Binding HasShortcutBadge, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding ShortcutBadge}" FontSize="10" FontWeight="SemiBold" Foreground="White"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
             <Button x:Name="TileButton"
                     Style="{StaticResource AppTileButton}"
                     Width="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=IconSize}"
@@ -78,9 +94,13 @@
                                   Visibility="{Binding CanRunAsAdmin, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="Open file location" Click="OpenFileLocation_Click" Tag="{Binding}"
                                   Visibility="{Binding CanOpenLocation, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="Edit connection" Click="EditRemoteDesktop_Click" Tag="{Binding}"
+                                  Visibility="{Binding IsRemoteDesktop, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="Rename" Click="RenameTile_Click" Tag="{Binding}"
                                   Visibility="{Binding CanCustomize, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="Change icon..." Click="ChangeIcon_Click" Tag="{Binding}"
+                                  Visibility="{Binding CanCustomize, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="Properties..." Click="TileProperties_Click" Tag="{Binding}"
                                   Visibility="{Binding CanCustomize, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="Rename folder" Click="RenameFolder_Click" Tag="{Binding}"
                                   Visibility="{Binding IsFolder, Converter={StaticResource BoolToVis}}"/>
@@ -435,6 +455,9 @@
                               Template="{StaticResource OverlayScrollViewerTemplate}"
                               PreviewMouseWheel="CategoriesScrollViewer_PreviewMouseWheel"
                               PreviewDragOver="CategoriesScrollViewer_PreviewDragOver"
+                              AllowDrop="True"
+                              DragOver="CategoriesScrollViewer_DragOver"
+                              Drop="CategoriesScrollViewer_Drop"
                               ScrollChanged="CategoriesScrollViewer_ScrollChanged"
                               Background="Transparent">
                     <!-- Right-click on empty space in the dock. Background="Transparent"
@@ -538,59 +561,76 @@
                                                  (see the TextBox's own ContextMenu below) carrying both
                                                  Rename and Remove, so there's now just the one column,
                                                  the name box, filling the whole banner. -->
+                                            <!-- Click the banner to fold the category down to just
+                                                 its name, and again to open it (see
+                                                 CategoryBanner_MouseLeftButtonUp). The name box only
+                                                 takes clicks while renaming (right-click → Rename
+                                                 Category, which sets CategoryViewModel.IsRenaming), so
+                                                 the right-click menu lives on the banner itself. -->
                                             <Grid Grid.Row="1" Height="24" Margin="4,0,4,1"
                                                   Background="Transparent"
                                                   AllowDrop="True"
+                                                  Cursor="Hand"
+                                                  ToolTip="{Binding CollapsedToolTip}"
                                                   Visibility="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryBannerVisibility}"
                                                   PreviewMouseLeftButtonDown="CategoryBanner_PreviewMouseLeftButtonDown"
                                                   PreviewMouseMove="CategoryBanner_PreviewMouseMove"
+                                                  MouseLeftButtonUp="CategoryBanner_MouseLeftButtonUp"
                                                   DragOver="CategoryBanner_DragOver"
                                                   DragLeave="CategoryBanner_DragLeave"
                                                   Drop="CategoryBanner_Drop"
                                                   Tag="{Binding}">
-                                                <!-- TextAlignment follows the same IconAlignment setting
-                                                     that packs each category's own icon row Left/Center/
-                                                     Right (see MainWindow.xaml.cs's CategoryNameAlignment,
-                                                     computed in ApplyAppearanceSettings) — the banner's
-                                                     name now sits above wherever that row's content
-                                                     actually is instead of always pinned to the left.
-
-                                                     ContextMenu is set directly on this TextBox (replacing
-                                                     its default Cut/Copy/Paste menu — a short category name
-                                                     doesn't lean on that, and Ctrl+X/C/V still work
-                                                     regardless) rather than on the outer Grid: the TextBox
-                                                     already fills virtually the whole banner width, so a
-                                                     Grid-level ContextMenu would rarely actually be reachable
-                                                     by a right-click landing on it instead. MenuItem
-                                                     Tag="{Binding}" below resolves correctly to this
-                                                     category's own CategoryViewModel because WPF's
-                                                     FrameworkElement.ContextMenu specifically inherits
-                                                     DataContext from its owner even though it renders in a
-                                                     separate Popup visual root — the same mechanism the icon
-                                                     tiles' own context menus already rely on (see
-                                                     IconTileTemplate above). -->
-                                                <TextBox Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="Rename Category" Click="RenameCategoryMenuItem_Click" Tag="{Binding}"/>
+                                                        <MenuItem Header="Remove Category" Click="DeleteCategory_Click" Tag="{Binding}"/>
+                                                    </ContextMenu>
+                                                </Grid.ContextMenu>
+                                                <!-- Fold chevron: always shown while folded, otherwise
+                                                     only while the pointer is over the banner. -->
+                                                <TextBlock Grid.Column="0" Text="{Binding ChevronGlyph}"
+                                                           FontFamily="{StaticResource IconFont}" FontSize="9"
+                                                           VerticalAlignment="Center" Margin="2,1,0,0" Width="10"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           IsHitTestVisible="False">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Opacity" Value="0"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Grid}}" Value="True">
+                                                                    <Setter Property="Opacity" Value="1"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsCollapsed}" Value="True">
+                                                                    <Setter Property="Opacity" Value="1"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <!-- TextAlignment follows the same alignment setting that
+                                                     packs each category's own icon row (see
+                                                     CategoryBannerAlignment in MainWindow.xaml.cs). -->
+                                                <TextBox Grid.Column="1"
+                                                         Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
                                                          Background="Transparent"
                                                          BorderThickness="0"
                                                          FontSize="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryFontSize}"
                                                          FontWeight="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryNameFontWeight}"
                                                          Foreground="{DynamicResource PrimaryTextBrush}"
                                                          TextAlignment="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryBannerAlignment}"
-                                                         Padding="4,0"
+                                                         Padding="2,0,4,0"
                                                          VerticalContentAlignment="Center"
                                                          Cursor="IBeam"
+                                                         IsHitTestVisible="{Binding IsRenaming}"
+                                                         Focusable="{Binding IsRenaming}"
+                                                         ContextMenu="{x:Null}"
                                                          GotFocus="CategoryNameBox_GotFocus"
                                                          LostFocus="CategoryNameBox_LostFocus"
-                                                         KeyDown="CategoryNameBox_KeyDown">
-                                                    <TextBox.ContextMenu>
-                                                        <ContextMenu>
-                                                            <MenuItem Header="Rename Category" Click="RenameCategoryMenuItem_Click" Tag="{Binding}"/>
-                                                            <MenuItem Header="Remove Category" Click="DeleteCategory_Click" Tag="{Binding}"
-                                                                      IsEnabled="{Binding IsEmpty}"
-                                                                      ToolTip="Only while empty — drag its apps out (or into another category) first"/>
-                                                        </ContextMenu>
-                                                    </TextBox.ContextMenu>
-                                                </TextBox>
+                                                         KeyDown="CategoryNameBox_KeyDown"/>
                                             </Grid>
 
                                             <Border x:Name="CategoryDropBelow" Grid.Row="2"
@@ -600,6 +640,7 @@
                                         </Grid>
 
                                         <ItemsControl Grid.Row="1" ItemsSource="{Binding Icons}"
+                                                      Visibility="{Binding IconsVisibility}"
                                                       HorizontalAlignment="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=CategoryIconsHorizontalAlignment}"
                                                       ItemsPanel="{StaticResource CategoryIconsPanelTemplate}"
                                                       ItemTemplate="{StaticResource IconTileTemplate}"/>

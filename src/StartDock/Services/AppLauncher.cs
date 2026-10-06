@@ -13,24 +13,17 @@ namespace StartDock.Services
             path != null && (path.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase)
                           || path.EndsWith(".bat", StringComparison.OrdinalIgnoreCase));
 
-        public static bool Launch(DockIcon icon)
+        /// <summary>Starts a tile's target with its arguments and "Start in" folder
+        /// (set in the tile's Properties), as administrator when
+        /// <paramref name="asAdministrator"/> or the tile's own RunAsAdmin says so.
+        /// False if it couldn't start (or the admin prompt was declined).</summary>
+        public static bool Launch(DockIcon icon, bool asAdministrator = false)
         {
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = icon.TargetPath,
-                    UseShellExecute = true, // required for .lnk, documents, folders, and shell:AppsFolder\... targets
-                };
-
-                if (!string.IsNullOrWhiteSpace(icon.Arguments) && !icon.TargetPath.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
-                    psi.Arguments = icon.Arguments;
-
-                if (!string.IsNullOrWhiteSpace(icon.WorkingDirectory) && Directory.Exists(icon.WorkingDirectory))
-                    psi.WorkingDirectory = icon.WorkingDirectory;
-                else if (IsScript(icon.TargetPath) && Path.GetDirectoryName(icon.TargetPath) is { Length: > 0 } scriptFolder)
-                    psi.WorkingDirectory = scriptFolder; // a script runs from its own folder, as when double-clicked
-
+                var psi = BuildStartInfo(icon);
+                if (asAdministrator || (icon.RunAsAdmin && CanRunAsAdmin(icon.TargetPath)))
+                    psi.Verb = "runas";
                 Process.Start(psi);
                 return true;
             }
@@ -38,6 +31,65 @@ namespace StartDock.Services
             {
                 return false;
             }
+        }
+
+        /// <summary>Store apps can't be started as administrator — Windows' own
+        /// Start menu doesn't offer it either. Their id contains a "!".</summary>
+        public static bool CanRunAsAdmin(string? target) => !(target ?? string.Empty).Contains('!');
+
+        /// <summary>Whether a tile's own arguments can be passed to its target: not to
+        /// Store apps, documents, folders or websites.</summary>
+        public static bool AcceptsArguments(string? target)
+        {
+            target ??= string.Empty;
+            if (target.StartsWith(AppsFolderPrefix, StringComparison.OrdinalIgnoreCase))
+                return !target.Contains('!');
+            string ext = Path.GetExtension(target).ToLowerInvariant();
+            return ext is ".exe" or ".lnk" or ".cmd" or ".bat" or ".msc";
+        }
+
+        private const string AppsFolderPrefix = "shell:AppsFolder\\";
+
+        private static ProcessStartInfo BuildStartInfo(DockIcon icon)
+        {
+            string target = icon.TargetPath;
+            string args = icon.Arguments?.Trim() ?? string.Empty;
+            string workDir = Environment.ExpandEnvironmentVariables(icon.WorkingDirectory?.Trim() ?? string.Empty);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = target,
+                UseShellExecute = true, // required for .lnk, documents, folders, and shell:AppsFolder\... targets
+            };
+
+            // Windows doesn't pass arguments on to a shortcut or a Start menu entry,
+            // so with arguments set, start the program they point to directly.
+            if (args.Length > 0)
+            {
+                if (target.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase)
+                    && ShortcutResolver.Shortcut(target) is { } link)
+                {
+                    psi.FileName = link.Path;
+                    args = (link.Arguments + " " + args).Trim();
+                    if (workDir.Length == 0)
+                        workDir = link.WorkingDirectory;
+                }
+                else if (target.StartsWith(AppsFolderPrefix, StringComparison.OrdinalIgnoreCase)
+                    && ShortcutResolver.AppsFolderProgram(target.Substring(AppsFolderPrefix.Length)) is { } program)
+                {
+                    psi.FileName = program;
+                }
+
+                if (!psi.FileName.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+                    psi.Arguments = args;
+            }
+
+            if (workDir.Length > 0 && Directory.Exists(workDir))
+                psi.WorkingDirectory = workDir;
+            else if (IsScript(psi.FileName) && Path.GetDirectoryName(psi.FileName) is { Length: > 0 } scriptFolder)
+                psi.WorkingDirectory = scriptFolder; // a script runs from its own folder, as when double-clicked
+
+            return psi;
         }
 
         /// <summary>The menu bar's Calculator button: Windows' own Calculator app.</summary>

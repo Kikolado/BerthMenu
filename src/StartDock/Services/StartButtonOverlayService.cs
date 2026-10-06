@@ -100,6 +100,17 @@ namespace StartDock.Services
         /// <summary>Raised when any covered Start button is clicked.</summary>
         public event Action? StartButtonClicked;
 
+        /// <summary>Raised when something being dragged (a file from File Explorer,
+        /// say) is held over a Start button for half a second — opens the dock so
+        /// it can be dropped there to pin it.</summary>
+        public event Action? StartButtonDragHover;
+
+        // Left button state, for telling a click on the Start button from a drag
+        // that started somewhere else and is passing over (or ending on) it.
+        private bool _leftHeld;
+        private bool _pressOnButton;
+        private DispatcherTimer? _dragHoverTimer;
+
         public StartButtonOverlayService(string? diagnosticsFolder = null)
         {
             _diagnosticsFolder = diagnosticsFolder;
@@ -223,8 +234,13 @@ namespace StartDock.Services
             bool isLeftUp = wParam == (IntPtr)NativeMethods.WM_LBUTTONUP;
             bool isRightDown = wParam == (IntPtr)NativeMethods.WM_RBUTTONDOWN;
             bool isRightUp = wParam == (IntPtr)NativeMethods.WM_RBUTTONUP;
+            bool isMove = wParam == (IntPtr)WM_MOUSEMOVE;
 
-            if (isLeftDown || isLeftUp || isRightDown || isRightUp)
+            // Moves only matter while the left button is held (a drag).
+            if (isMove && !_leftHeld)
+                return NativeMethods.CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+
+            if (isLeftDown || isLeftUp || isRightDown || isRightUp || isMove)
             {
                 var data = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
 
@@ -232,9 +248,43 @@ namespace StartDock.Services
                 // never DPI-adjusts raw input coordinates for this hook), the same
                 // space UI Automation's BoundingRectangle gave us when
                 // TryFindStartButtonRect built these rectangles — no manual DPI
-                // math needed, same as the old overlay-window version's own
-                // SetWindowPos calls didn't need any either.
-                if (PointIsOverAnyButton(data.pt))
+                // math needed.
+                bool over = PointIsOverAnyButton(data.pt);
+
+                if (isMove)
+                {
+                    // A drag from somewhere else held over the Start button: open
+                    // the dock after a moment (see StartButtonDragHover). Never
+                    // swallowed — the drag carries on normally.
+                    bool stillHeld = (NativeMethods.GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+                    if (!stillHeld)
+                        _leftHeld = false;
+                    if (over && stillHeld && !_pressOnButton)
+                        StartDragHover();
+                    else
+                        StopDragHover();
+                    return NativeMethods.CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+                }
+
+                if (isLeftDown)
+                {
+                    _leftHeld = true;
+                    _pressOnButton = over;
+                }
+                else if (isLeftUp)
+                {
+                    bool pressWasOnButton = _pressOnButton;
+                    _leftHeld = false;
+                    _pressOnButton = false;
+                    StopDragHover();
+
+                    // The end of a drag that started elsewhere: let it through, so
+                    // whatever was dragging never misses its button release.
+                    if (over && !pressWasOnButton)
+                        return NativeMethods.CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+                }
+
+                if (over)
                 {
                     if (isLeftUp)
                         StartButtonClicked?.Invoke();
@@ -244,6 +294,31 @@ namespace StartDock.Services
             }
 
             return NativeMethods.CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+        }
+
+        private const int WM_MOUSEMOVE = 0x0200;
+        private const int VK_LBUTTON = 0x01;
+
+        private void StartDragHover()
+        {
+            if (_dragHoverTimer is { IsEnabled: true })
+                return;
+            _dragHoverTimer ??= CreateDragHoverTimer();
+            _dragHoverTimer.Start();
+        }
+
+        private void StopDragHover() => _dragHoverTimer?.Stop();
+
+        private DispatcherTimer CreateDragHoverTimer()
+        {
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                if (_leftHeld && (NativeMethods.GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0)
+                    StartButtonDragHover?.Invoke();
+            };
+            return timer;
         }
 
         private bool PointIsOverAnyButton(NativeMethods.POINT pt)

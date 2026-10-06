@@ -343,6 +343,15 @@ namespace StartDock.Models
         /// results, opening the default browser with WebSearchEngine.</summary>
         public bool SearchWeb { get; set; } = true;
 
+        /// <summary>Like the Windows Run box: a command (cmd, notepad, ping 8.8.8.8)
+        /// or a path (C:\Users, %AppData%) typed into search shows a "Run" / "Open"
+        /// result. See Services/RunCommand.</summary>
+        public bool SearchRun { get; set; } = true;
+
+        /// <summary>A small bar under pinned apps that are open right now.
+        /// See Services/RunningApps.</summary>
+        public bool ShowRunningIndicator { get; set; } = false;
+
         public WebSearchEngine WebSearchEngine { get; set; } = WebSearchEngine.Google;
 
         /// <summary>Where the dock appears on screen — see DockPosition.</summary>

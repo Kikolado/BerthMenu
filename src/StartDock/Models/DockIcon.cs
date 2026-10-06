@@ -29,6 +29,14 @@ namespace StartDock.Models
         /// <summary>Optional "start in" working directory. Empty = let Windows decide.</summary>
         public string WorkingDirectory { get; set; } = string.Empty;
 
+        /// <summary>Always start as administrator (Properties → "Always run as
+        /// administrator"). Ignored for Store apps, which can't be.</summary>
+        public bool RunAsAdmin { get; set; }
+
+        /// <summary>Given its own name (Rename or Properties). Removing a tile asks
+        /// first when it was customized — see MainWindow.RemoveIcon_Click.</summary>
+        public bool Renamed { get; set; }
+
         /// <summary>
         /// Path to the cached, pre-extracted icon image (PNG) under the app data folder.
         /// Re-extracted automatically if missing. Unused for a folder tile — its tile

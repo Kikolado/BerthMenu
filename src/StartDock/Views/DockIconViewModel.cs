@@ -68,8 +68,50 @@ namespace StartDock.Views
             || (IsSearchResult && !IsAction && !IsFile
                 && (Model.TargetPath ?? string.Empty).StartsWith("shell:AppsFolder\\", System.StringComparison.OrdinalIgnoreCase));
 
+        /// <summary>A website tile (Add → Add a website…): the target is an http(s) address.</summary>
+        public bool IsWebsite =>
+            (Model.TargetPath ?? string.Empty).StartsWith("http://", System.StringComparison.OrdinalIgnoreCase)
+            || (Model.TargetPath ?? string.Empty).StartsWith("https://", System.StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>A saved Remote Desktop connection (.rdp file): right-click → Edit connection.</summary>
+        public bool IsRemoteDesktop =>
+            !IsFolder && (Model.TargetPath ?? string.Empty).EndsWith(".rdp", System.StringComparison.OrdinalIgnoreCase);
+
         /// <summary>Right-click → Open file location.</summary>
-        public bool CanOpenLocation => !IsFolder && !IsAction;
+        public bool CanOpenLocation => !IsFolder && !IsAction && !IsWebsite;
+
+        private string? _shortcutBadge;
+        /// <summary>"1"–"9" while Alt is held in the dock: Alt+that number opens
+        /// this tile (MainWindow.ShowShortcutBadges). Null otherwise.</summary>
+        public string? ShortcutBadge
+        {
+            get => _shortcutBadge;
+            set
+            {
+                if (_shortcutBadge == value)
+                    return;
+                _shortcutBadge = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ShortcutBadge)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasShortcutBadge)));
+            }
+        }
+
+        public bool HasShortcutBadge => _shortcutBadge != null;
+
+        private bool _isRunning;
+        /// <summary>The app is open right now — shows the small bar under the tile
+        /// (AppConfig.ShowRunningIndicator; see Services/RunningApps).</summary>
+        public bool IsRunning
+        {
+            get => _isRunning;
+            set
+            {
+                if (_isRunning == value)
+                    return;
+                _isRunning = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRunning)));
+            }
+        }
 
         public bool CanRunAsAdmin => IsApp && !(Model.TargetPath ?? string.Empty).Contains('!');
 
@@ -120,6 +162,15 @@ namespace StartDock.Views
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRunAsAdmin)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanCustomize)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanRefreshIcon)));
+        }
+
+        /// <summary>Raised after a tile's target is changed (Properties...), so the
+        /// right-click menu's options follow what it now opens.</summary>
+        public void NotifyTargetChanged()
+        {
+            foreach (string name in new[] { nameof(IsApp), nameof(CanRunAsAdmin), nameof(CanOpenLocation),
+                                            nameof(IsWebsite), nameof(IsRemoteDesktop), nameof(CanRefreshIcon) })
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
 
         /// <summary>Raised after this folder is renamed via the in-dock folder header.</summary>

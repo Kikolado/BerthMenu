@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Windows;
 using StartDock.Models;
 
 namespace StartDock.Views
@@ -47,8 +48,51 @@ namespace StartDock.Views
             Icons.CollectionChanged += (_, _) => NotifyIsEmptyChanged();
         }
 
-        private void NotifyIsEmptyChanged() =>
+        private void NotifyIsEmptyChanged()
+        {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsEmpty)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CollapsedToolTip)));
+        }
+
+        /// <summary>Folded down to just its name — clicking the name toggles it
+        /// (MainWindow.CategoryBanner_MouseLeftButtonUp). Saved with the category.</summary>
+        public bool IsCollapsed
+        {
+            get => Model.Collapsed;
+            set
+            {
+                if (Model.Collapsed == value)
+                    return;
+                Model.Collapsed = value;
+                foreach (string name in new[] { nameof(IsCollapsed), nameof(IconsVisibility), nameof(ChevronGlyph), nameof(CollapsedToolTip) })
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+            }
+        }
+
+        public Visibility IconsVisibility => IsCollapsed ? Visibility.Collapsed : Visibility.Visible;
+
+        /// <summary>Chevron right when folded, down when open (Segoe Fluent Icons).</summary>
+        public string ChevronGlyph => IsCollapsed ? "\uE76C" : "\uE70D";
+
+        /// <summary>The banner's tooltip while folded; none while open.</summary>
+        public string? CollapsedToolTip => IsCollapsed
+            ? $"{Icons.Count} {(Icons.Count == 1 ? "app" : "apps")} hidden. Click to show."
+            : null;
+
+        private bool _isRenaming;
+        /// <summary>The name is being edited (right-click → Rename Category). Only
+        /// then can the name box be clicked into; otherwise a click folds the category.</summary>
+        public bool IsRenaming
+        {
+            get => _isRenaming;
+            set
+            {
+                if (_isRenaming == value)
+                    return;
+                _isRenaming = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsRenaming)));
+            }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
     }

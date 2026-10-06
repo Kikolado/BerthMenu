@@ -2034,6 +2034,51 @@ namespace StartDock.Views
             RefreshUsageAsync();
             UpdateAutoSections();
             _ = AutoRefreshAppsAsync();
+            RefreshRunningIndicators();
+            if (_config.SearchRun)
+                RunCommand.WarmUp();
+        }
+
+        // ---------------------------------------------------------------
+        // Running-app indicator (AppConfig.ShowRunningIndicator)
+        // ---------------------------------------------------------------
+
+        private int _runningCheckVersion;
+
+        /// <summary>Marks the pinned tiles (and the tiles inside folders) whose app is
+        /// open right now — see Services/RunningApps. Checked in the background each
+        /// time the dock opens; the bars appear a moment later.</summary>
+        private async void RefreshRunningIndicators()
+        {
+            int version = ++_runningCheckVersion;
+            var tiles = _categories.SelectMany(c => c.Icons)
+                .SelectMany(v => v.IsFolder ? v.Children.AsEnumerable() : new[] { v })
+                .ToList();
+
+            if (!_config.ShowRunningIndicator)
+            {
+                foreach (var vm in tiles)
+                    vm.IsRunning = false;
+                return;
+            }
+
+            var targets = tiles.Select(v => v.Model.TargetPath ?? string.Empty)
+                .Where(t => t.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            HashSet<string> running;
+            try
+            {
+                running = await RunningApps.FindRunningAsync(targets);
+            }
+            catch
+            {
+                return;
+            }
+            if (version != _runningCheckVersion)
+                return;
+            foreach (var vm in tiles)
+                vm.IsRunning = running.Contains(vm.Model.TargetPath ?? string.Empty);
         }
 
         /// <summary>
@@ -2132,6 +2177,7 @@ namespace StartDock.Views
         public void HideDock()
         {
             if (_dialogOpen) return;
+            ShowShortcutBadges(false);
             _fullscreenTaskbar.Restore(); // no-op unless ShowDock actually raised it
             BeginDisappearAnimation();
         }
@@ -2544,11 +2590,84 @@ namespace StartDock.Views
         {
             if (e.Key == Key.Escape)
             {
+                // Esc while renaming a category: put the old name back instead of
+                // closing the dock.
+                if (Keyboard.FocusedElement is TextBox { DataContext: CategoryViewModel { IsRenaming: true } renaming } nameBox)
+                {
+                    nameBox.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+                    renaming.IsRenaming = false;
+                    Keyboard.Focus(SearchBox.IsVisible ? SearchBox : this);
+                    e.Handled = true;
+                    return;
+                }
                 HideDock();
                 return;
             }
 
+            // Alt+1–9: open the first nine tiles. Holding Alt shows their numbers.
+            if (e.Key == Key.System)
+            {
+                int number = e.SystemKey >= Key.D1 && e.SystemKey <= Key.D9 ? e.SystemKey - Key.D0 : 0;
+                if (number > 0)
+                {
+                    var tiles = NumberedTiles();
+                    ShowShortcutBadges(false);
+                    if (number <= tiles.Count)
+                        LaunchTile(tiles[number - 1]);
+                    e.Handled = true;
+                    return;
+                }
+                if (e.SystemKey is Key.LeftAlt or Key.RightAlt)
+                {
+                    if (!e.IsRepeat)
+                        ShowShortcutBadges(true);
+                    e.Handled = true; // and no menu-key focus change
+                    return;
+                }
+            }
+
             HandleGridKeyNavigation(e);
+        }
+
+        private void Window_PreviewKeyUp(object sender, KeyEventArgs e)
+        {
+            if ((e.Key == Key.System && e.SystemKey is Key.LeftAlt or Key.RightAlt)
+                || e.Key is Key.LeftAlt or Key.RightAlt)
+                ShowShortcutBadges(false);
+        }
+
+        // ---------------------------------------------------------------
+        // Alt+1–9 (see Window_PreviewKeyDown)
+        // ---------------------------------------------------------------
+
+        private readonly List<DockIconViewModel> _badgedTiles = new();
+
+        /// <summary>The tiles Alt+1–9 open, in the order they're shown: in the
+        /// category view, pinned tiles from the top (skipping folded categories);
+        /// while searching or inside a folder, the results shown.</summary>
+        private List<DockIconViewModel> NumberedTiles()
+        {
+            var tiles = _openFolder == null && string.IsNullOrEmpty(SearchBox.Text)
+                ? _categories.Where(c => !c.IsCollapsed).SelectMany(c => c.Icons)
+                : IconItemsControl.Items.OfType<DockIconViewModel>();
+            return tiles.Take(9).ToList();
+        }
+
+        /// <summary>Shows (or clears) the 1–9 number on the tiles Alt+number opens.</summary>
+        private void ShowShortcutBadges(bool show)
+        {
+            foreach (var vm in _badgedTiles)
+                vm.ShortcutBadge = null;
+            _badgedTiles.Clear();
+            if (!show)
+                return;
+
+            var tiles = NumberedTiles();
+            for (int i = 0; i < tiles.Count; i++)
+            {
+                tiles[i].ShortcutBadge = (i + 1).ToString();
+                _badgedTiles.Add(tiles[i]);
+            }
         }
 
         /// <summary>Routes a typed character to the search box no matter what
@@ -2774,6 +2893,20 @@ namespace StartDock.Views
                 return;
             }
 
+            // Run box result: run the command or open the path. Ctrl+Shift+Enter
+            // (or Ctrl+Shift+click) runs it as administrator, as in Win+R.
+            if (target.StartsWith(RunTargetPrefix, StringComparison.Ordinal))
+            {
+                if (RunCommand.Parse(target.Substring(RunTargetPrefix.Length)) is { } run)
+                {
+                    bool asAdmin = (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == (ModifierKeys.Control | ModifierKeys.Shift);
+                    if (RunCommand.Run(run, asAdmin) && run.Kind == RunCommand.Kind.Command)
+                        RecordAppLaunch(run.FileName);
+                }
+                HideDock();
+                return;
+            }
+
             // "Search the web for …": open the default browser.
             if (target.StartsWith(WebTargetPrefix, StringComparison.Ordinal))
             {
@@ -2885,6 +3018,61 @@ namespace StartDock.Views
             };
         }
 
+        private const string RunTargetPrefix = "startdock:run:";
+
+        // Icons for run results, by program or path, so they aren't re-extracted
+        // on every keystroke.
+        private readonly Dictionary<string, ImageSource?> _runIcons = new(StringComparer.OrdinalIgnoreCase);
+
+        private DockIconViewModel CreateRunTile(RunCommand.Target run)
+        {
+            string name = run.Kind switch
+            {
+                RunCommand.Kind.Command => $"Run \"{run.Text}\"",
+                _ => $"Open \"{run.Text}\"",
+            };
+            var model = new DockIcon { Name = name, TargetPath = RunTargetPrefix + run.Text };
+            return new DockIconViewModel(model, isSearchResult: true)
+            {
+                IsAction = true,
+                IconImage = RunIcon(run),
+            };
+        }
+
+        private ImageSource? RunIcon(RunCommand.Target run)
+        {
+            if (run.Kind == RunCommand.Kind.Address)
+                return CreateGlyphImage(run.FileName.StartsWith("ms-settings:", StringComparison.OrdinalIgnoreCase) ? "\uE713" : "\uE774");
+            if (run.FileName.StartsWith(@"\\"))
+                return CreateGlyphImage("\uE8B7"); // Folder — don't touch the network for an icon
+
+            if (_runIcons.TryGetValue(run.FileName, out var cached))
+                return cached;
+
+            ImageSource? image = null;
+            try
+            {
+                string? png = _iconExtractor.ExtractAndCache(run.FileName, IconExtractor.StableId("run:" + run.FileName));
+                if (png != null && File.Exists(png))
+                {
+                    var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bitmap.UriSource = new Uri(png, UriKind.Absolute);
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+                    image = bitmap;
+                }
+            }
+            catch
+            {
+                // Fall back to a glyph below.
+            }
+            image ??= CreateGlyphImage(run.Kind == RunCommand.Kind.Command ? "\uE756" : run.Kind == RunCommand.Kind.Folder ? "\uE8B7" : "\uE8A5");
+            _runIcons[run.FileName] = image;
+            return image;
+        }
+
         private DockIconViewModel CreateWebSearchTile(string query)
         {
             var model = new DockIcon { Name = $"Search the web for \"{query}\"", TargetPath = WebTargetPrefix + query };
@@ -2992,6 +3180,14 @@ namespace StartDock.Views
 
         private void LoadIconImageAsync(DockIconViewModel vm)
         {
+            // A website: a globe until the site's own icon has been downloaded.
+            if (vm.IsWebsite && (string.IsNullOrEmpty(vm.Model.CachedIconPath) || !File.Exists(vm.Model.CachedIconPath)))
+            {
+                vm.IconImage = CreateGlyphImage("\uE774");
+                _ = LoadWebsiteIconAsync(vm);
+                return;
+            }
+
             try
             {
                 string? path = vm.Model.CachedIconPath;
@@ -3019,6 +3215,41 @@ namespace StartDock.Views
             catch
             {
                 // A single bad icon shouldn't block the rest of the grid from loading.
+            }
+        }
+
+        // Websites whose icon download was already tried this session, so a site
+        // without a usable icon isn't asked again every time the grid reloads.
+        // Refresh icon clears its entry to try again.
+        private readonly HashSet<string> _siteIconAttempts = new(StringComparer.OrdinalIgnoreCase);
+
+        private async Task LoadWebsiteIconAsync(DockIconViewModel vm)
+        {
+            string url = vm.Model.TargetPath ?? string.Empty;
+            if (!_siteIconAttempts.Add(url))
+                return;
+
+            string? downloaded = await SiteIcon.DownloadAsync(url);
+            if (downloaded == null)
+                return;
+            try
+            {
+                Directory.CreateDirectory(_configService.IconCacheFolder);
+                string png = Path.Combine(_configService.IconCacheFolder, $"{vm.Model.Id}-site-{DateTime.UtcNow.Ticks}.png");
+                SaveAsIconPng(downloaded, png);
+                if (vm.Model.TargetPath != url)
+                    return; // changed meanwhile
+                vm.Model.CachedIconPath = png;
+                PersistConfig();
+                LoadIconImageAsync(vm);
+            }
+            catch
+            {
+                // Not a picture WPF can read — the globe stays.
+            }
+            finally
+            {
+                try { File.Delete(downloaded); } catch { /* temp file */ }
             }
         }
 
@@ -3231,8 +3462,14 @@ namespace StartDock.Views
             // just added into the same results list, so they sort into place
             // alongside everything else by the ordering right below rather than
             // getting a separate section of their own.
+            // A Windows tool the app list already has (Services, Event Viewer…)
+            // shows once, as the app.
+            var namesSoFar = new HashSet<string>(results.Select(r => r.Name), StringComparer.OrdinalIgnoreCase);
             foreach (var entry in WindowsSettingsCatalog.Search(filter))
-                results.Add(CreateSettingsResultTile(entry));
+            {
+                if (namesSoFar.Add(entry.Name))
+                    results.Add(CreateSettingsResultTile(entry));
+            }
 
             // Best matches first (the text starts the name or a word in it), and
             // within those, what you open most (UsageScore) — so after a few uses,
@@ -3245,6 +3482,21 @@ namespace StartDock.Views
                 .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
                 .Take(24) // enough to fill several rows without overwhelming the grid
                 .ToList();
+
+            // Run box (AppConfig.SearchRun): a path or address goes first, since
+            // nothing else matches those. A command goes after the apps whose name
+            // starts with what's typed, so "notepad" still opens the Notepad app
+            // first, while "cmd" or "regedit" (which no app name matches) runs first.
+            if (_config.SearchRun && RunCommand.Parse(filter) is { } run)
+            {
+                int at = 0;
+                if (run.Kind == RunCommand.Kind.Command)
+                {
+                    while (at < ordered.Count && MatchTier(ordered[at].Name, filter) == 0)
+                        at++;
+                }
+                ordered.Insert(at, CreateRunTile(run));
+            }
 
             // Calculator answer first, so Enter copies it straight away.
             if (_config.SearchCalculator && Calculator.TryEvaluate(filter, out double answer))
@@ -3303,8 +3555,26 @@ namespace StartDock.Views
         /// gear icon), same as every "app not yet found an icon" case elsewhere just
         /// shows blank rather than a per-tile icon of its own — there's no
         /// per-settings-page icon to extract here, these aren't real files.</summary>
+        // Icons for the Windows tools in WindowsSettingsCatalog, by file, extracted
+        // the first time each one comes up in search.
+        private readonly Dictionary<string, (string? Path, ImageSource? Image)> _toolIcons = new(StringComparer.OrdinalIgnoreCase);
+
         private DockIconViewModel CreateSettingsResultTile(WindowsSettingsCatalog.Entry entry)
         {
+            if (entry.IconSource != null)
+            {
+                if (!_toolIcons.TryGetValue(entry.IconSource, out var icon))
+                {
+                    string? png = null;
+                    try { png = _iconExtractor.ExtractAndCache(entry.IconSource, IconExtractor.StableId("tool:" + entry.IconSource)); }
+                    catch { /* no icon — the tile still works */ }
+                    icon = (png, LoadFrozenImage(png));
+                    _toolIcons[entry.IconSource] = icon;
+                }
+                var toolModel = new DockIcon { Name = entry.Name, TargetPath = entry.Uri, CachedIconPath = icon.Path ?? string.Empty };
+                return new DockIconViewModel(toolModel, isSearchResult: true) { IconImage = icon.Image };
+            }
+
             EnsureWindowsSettingsIconLoaded();
 
             var transientModel = new DockIcon
@@ -3528,6 +3798,10 @@ namespace StartDock.Views
                 {
                     BrowseForFolderAndAdd();
                 }
+                else if (picker.BrowseWebsiteInstead)
+                {
+                    AddWebsite();
+                }
                 // else: user cancelled — do nothing.
             }
             finally
@@ -3544,7 +3818,8 @@ namespace StartDock.Views
                 Title = "Add to StartDock",
                 // Scripts (.cmd/.bat) are listed by default too, so something like
                 // installer\Publish.cmd can be pinned without switching to All files.
-                Filter = "Programs, scripts and shortcuts (*.exe;*.lnk;*.cmd;*.bat;*.url)|*.exe;*.lnk;*.cmd;*.bat;*.url|All files (*.*)|*.*",
+                // .rdp: saved Remote Desktop connections (each with its own settings).
+                Filter = "Programs, scripts and shortcuts (*.exe;*.lnk;*.cmd;*.bat;*.url;*.rdp)|*.exe;*.lnk;*.cmd;*.bat;*.url;*.rdp|All files (*.*)|*.*",
                 CheckFileExists = true,
             };
 
@@ -3565,6 +3840,15 @@ namespace StartDock.Views
             if (string.IsNullOrEmpty(name))
                 name = path; // a drive root like C:\
             AddIcon(name, path);
+        }
+
+        /// <summary>Pins a website: the tile opens it in the default browser, with the
+        /// site's own icon once it's downloaded (see LoadWebsiteIconAsync).</summary>
+        private void AddWebsite()
+        {
+            var dialog = new AddWebsiteDialog { Owner = this };
+            if (dialog.ShowDialog() == true)
+                AddIcon(dialog.SiteName, dialog.Url);
         }
 
         private void AddIcon(string name, string targetPath, string? preResolvedIconPath = null)
@@ -3614,6 +3898,9 @@ namespace StartDock.Views
             // A search result isn't pinned — there's nothing to remove. This menu item
             // is hidden for these anyway; the check is just cheap insurance.
             if (vm.IsSearchResult)
+                return;
+
+            if (!ConfirmRemoveTile(vm))
                 return;
 
             if (_openFolder != null)
@@ -3694,6 +3981,8 @@ namespace StartDock.Views
 
             DeleteCachedIcon(vm);
             vm.Model.CachedIconPath = string.Empty;
+            if (vm.IsWebsite)
+                _siteIconAttempts.Remove(vm.Model.TargetPath); // fetch the site's icon again
             LoadIconImageAsync(vm);
             PersistConfig();
         }
@@ -3713,7 +4002,57 @@ namespace StartDock.Views
                     return;
 
                 vm.Model.Name = dialog.NewName;
+                vm.Model.Renamed = true;
                 vm.NotifyNameChanged();
+                PersistConfig();
+
+                string filter = SearchBox.Text.Trim();
+                if (!string.IsNullOrEmpty(filter))
+                    RenderSearchResults(filter, _lastInstalledApps);
+            }
+            finally
+            {
+                _dialogOpen = false;
+                Activate();
+            }
+        }
+
+        /// <summary>Right-click → Properties... on a pinned tile: name, what it opens,
+        /// arguments, "Start in" folder and "Always run as administrator" (see
+        /// TilePropertiesDialog and AppLauncher.Launch).</summary>
+        private void TileProperties_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not MenuItem { Tag: DockIconViewModel vm } || !vm.CanCustomize)
+                return;
+
+            _dialogOpen = true; // keep the dock open while the dialog has focus
+            try
+            {
+                var dialog = new TilePropertiesDialog(vm.Model) { Owner = this };
+                if (dialog.ShowDialog() != true)
+                    return;
+
+                var model = vm.Model;
+                bool targetChanged = !string.Equals(model.TargetPath, dialog.Target, StringComparison.OrdinalIgnoreCase);
+
+                if (model.Name != dialog.TileName)
+                    model.Renamed = true;
+                model.Name = dialog.TileName;
+                model.TargetPath = dialog.Target;
+                model.Arguments = dialog.Arguments;
+                model.WorkingDirectory = dialog.StartIn;
+                model.RunAsAdmin = dialog.RunAsAdmin;
+                vm.NotifyNameChanged();
+                vm.NotifyTargetChanged();
+
+                // A new target gets its own icon — unless a custom one was chosen
+                // with Change icon..., which stays.
+                if (targetChanged && !(model.CachedIconPath ?? string.Empty).Contains("-custom-", StringComparison.OrdinalIgnoreCase))
+                {
+                    DeleteCachedIcon(vm);
+                    model.CachedIconPath = string.Empty;
+                    LoadIconImageAsync(vm);
+                }
                 PersistConfig();
 
                 string filter = SearchBox.Text.Trim();
@@ -3872,6 +4211,112 @@ namespace StartDock.Views
                 DragDrop.DoDragDrop(button, dragged, DragDropEffects.Move);
         }
 
+        // ---------------------------------------------------------------
+        // Pinning by dragging in from outside StartDock (File Explorer, the
+        // desktop, a browser's link). To get the dock open mid-drag: press the
+        // Windows key, or hold the drag over the taskbar's Start button
+        // (StartButtonOverlayService.StartButtonDragHover).
+        // ---------------------------------------------------------------
+
+        private static bool HasExternalDrop(DragEventArgs e) =>
+            !e.Data.GetDataPresent(typeof(DockIconViewModel))
+            && !e.Data.GetDataPresent(typeof(CategoryViewModel))
+            && (e.Data.GetDataPresent(DataFormats.FileDrop) || DroppedUrl(e) != null);
+
+        /// <summary>A web address dragged from a browser (a link or the address bar).</summary>
+        private static string? DroppedUrl(DragEventArgs e)
+        {
+            try
+            {
+                string? text = null;
+                if (e.Data.GetDataPresent("UniformResourceLocatorW") && e.Data.GetData("UniformResourceLocatorW") is MemoryStream wide)
+                    text = System.Text.Encoding.Unicode.GetString(wide.ToArray());
+                else if (e.Data.GetDataPresent("UniformResourceLocator") && e.Data.GetData("UniformResourceLocator") is MemoryStream narrow)
+                    text = System.Text.Encoding.Default.GetString(narrow.ToArray());
+                else if (e.Data.GetDataPresent(DataFormats.UnicodeText))
+                    text = e.Data.GetData(DataFormats.UnicodeText) as string;
+
+                text = text?.TrimEnd('\0').Trim();
+                return text != null && !text.Contains('\n')
+                    && Uri.TryCreate(text, UriKind.Absolute, out var uri)
+                    && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                    ? uri.AbsoluteUri
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Pins what was dropped into <paramref name="category"/> at
+        /// <paramref name="index"/>, in the order dropped. Returns how many were pinned.</summary>
+        private int PinExternalDrop(DragEventArgs e, CategoryViewModel category, int index)
+        {
+            var items = new List<(string Name, string Target)>();
+            if (e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+            {
+                foreach (string path in paths)
+                {
+                    if (Directory.Exists(path))
+                    {
+                        string name = Path.GetFileName(path.TrimEnd('\\'));
+                        items.Add((string.IsNullOrEmpty(name) ? path : name, path));
+                    }
+                    else if (File.Exists(path))
+                    {
+                        items.Add((Path.GetFileNameWithoutExtension(path), path));
+                    }
+                }
+            }
+            else if (DroppedUrl(e) is { } url && AddWebsiteDialog.Normalize(url) is { } uri)
+            {
+                items.Add((AddWebsiteDialog.NameFor(uri), uri.AbsoluteUri));
+            }
+
+            int at = Math.Max(0, Math.Min(index, category.Icons.Count));
+            foreach (var (name, target) in items)
+            {
+                var icon = new DockIcon { Name = name, TargetPath = target };
+                category.Model.Icons.Insert(at, icon);
+                var vm = new DockIconViewModel(icon);
+                category.Icons.Insert(at, vm);
+                LoadIconImageAsync(vm);
+                at++;
+            }
+
+            if (items.Count > 0)
+            {
+                category.IsCollapsed = false; // show what was just added
+                RefreshEmptyState();
+                PersistConfig();
+                Activate();
+            }
+            return items.Count;
+        }
+
+        /// <summary>Dropped somewhere other than a category's row of icons: on a
+        /// category's name, at the end of that category; elsewhere, at the end of
+        /// the first one.</summary>
+        private void CategoriesScrollViewer_DragOver(object sender, DragEventArgs e)
+        {
+            if (_openFolder != null || !HasExternalDrop(e))
+                return;
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+        }
+
+        private void CategoriesScrollViewer_Drop(object sender, DragEventArgs e)
+        {
+            if (_openFolder != null || e.Handled || !HasExternalDrop(e))
+                return;
+            // On a category's name: that category. Anywhere else: the first one.
+            var category = (e.OriginalSource as FrameworkElement)?.DataContext as CategoryViewModel
+                           ?? TargetCategoryForNewIcon();
+            PinExternalDrop(e, category, category.Icons.Count);
+            e.Handled = true;
+        }
+
         private static bool TryGetIconPayload(DragEventArgs e, out DockIconViewModel icon)
         {
             if (e.Data.GetDataPresent(typeof(DockIconViewModel)) && e.Data.GetData(typeof(DockIconViewModel)) is DockIconViewModel vm)
@@ -3910,6 +4355,16 @@ namespace StartDock.Views
             if (sender is not FlowGridPanel panel || panel.Tag is not CategoryViewModel category)
                 return;
 
+            // Files, folders or a link dragged in from outside StartDock: a line where
+            // they'll be pinned.
+            if (_openFolder == null && HasExternalDrop(e))
+            {
+                panel.Feedback = FlowGridPanel.DropFeedback.Line(category.Icons.Count == 0 ? 0 : panel.GetInsertIndexAt(e.GetPosition(panel)));
+                e.Effects = DragDropEffects.Copy;
+                e.Handled = true;
+                return;
+            }
+
             if (_openFolder != null || !TryGetIconPayload(e, out var dragged))
             {
                 panel.Feedback = null;
@@ -3934,6 +4389,14 @@ namespace StartDock.Views
                 return;
 
             panel.Feedback = null;
+
+            if (_openFolder == null && HasExternalDrop(e))
+            {
+                int at = targetCategory.Icons.Count == 0 ? 0 : panel.GetInsertIndexAt(e.GetPosition(panel));
+                PinExternalDrop(e, targetCategory, at);
+                e.Handled = true;
+                return;
+            }
 
             if (_openFolder != null || !TryGetIconPayload(e, out var dragged))
                 return;
@@ -4131,13 +4594,14 @@ namespace StartDock.Views
         /// with nothing to drag yet.</summary>
         private void NewCategoryDropZone_DragOver(object sender, DragEventArgs e)
         {
-            if (_openFolder != null || !TryGetIconPayload(e, out _))
+            bool external = HasExternalDrop(e);
+            if (_openFolder != null || (!external && !TryGetIconPayload(e, out _)))
                 return;
 
             if (sender is Border zone)
                 zone.Background = (Brush)FindResource("TileHoverBrush");
 
-            e.Effects = DragDropEffects.Move;
+            e.Effects = external ? DragDropEffects.Copy : DragDropEffects.Move;
             e.Handled = true;
         }
 
@@ -4152,7 +4616,25 @@ namespace StartDock.Views
             if (sender is Border zone)
                 zone.Background = Brushes.Transparent;
 
-            if (_openFolder != null || !TryGetIconPayload(e, out var dragged))
+            if (_openFolder != null)
+                return;
+
+            if (HasExternalDrop(e))
+            {
+                var newCategory = new Category { Name = "New category" };
+                _config.Categories.Add(newCategory);
+                var newCategoryVm = new CategoryViewModel(newCategory);
+                _categories.Add(newCategoryVm);
+                if (PinExternalDrop(e, newCategoryVm, 0) == 0)
+                {
+                    _config.Categories.Remove(newCategory);
+                    _categories.Remove(newCategoryVm);
+                }
+                e.Handled = true;
+                return;
+            }
+
+            if (!TryGetIconPayload(e, out var dragged))
                 return;
 
             var category = new Category { Name = "New category" };
@@ -4173,25 +4655,34 @@ namespace StartDock.Views
             if (sender is not MenuItem { Tag: DockIconViewModel vm } || !vm.CanRunAsAdmin)
                 return;
 
+            // False if the UAC prompt was declined (or the target can't be
+            // elevated) — then nothing happens.
+            if (AppLauncher.Launch(vm.Model, asAdministrator: true))
+            {
+                RecordAppLaunch(vm.Model.TargetPath);
+                HideDock();
+            }
+        }
+
+        /// <summary>Right-click → Edit connection on a Remote Desktop (.rdp) tile:
+        /// opens Remote Desktop Connection's options for that file, where it can be
+        /// changed and saved, the same as Edit on the file in File Explorer.</summary>
+        private void EditRemoteDesktop_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not MenuItem { Tag: DockIconViewModel vm } || !vm.IsRemoteDesktop)
+                return;
             try
             {
-                var psi = new System.Diagnostics.ProcessStartInfo(vm.Model.TargetPath)
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("mstsc.exe")
                 {
                     UseShellExecute = true,
-                    Verb = "runas",
-                };
-                if (!string.IsNullOrWhiteSpace(vm.Model.Arguments) && !vm.Model.TargetPath.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
-                    psi.Arguments = vm.Model.Arguments;
-                if (!string.IsNullOrWhiteSpace(vm.Model.WorkingDirectory) && Directory.Exists(vm.Model.WorkingDirectory))
-                    psi.WorkingDirectory = vm.Model.WorkingDirectory;
-
-                System.Diagnostics.Process.Start(psi);
-                RecordAppLaunch(vm.Model.TargetPath);
+                    Arguments = $"/edit \"{vm.Model.TargetPath}\"",
+                });
                 HideDock();
             }
             catch
             {
-                // UAC prompt declined (or the target can't be elevated) — nothing to do.
+                // Remote Desktop Connection isn't available (some Windows editions).
             }
         }
 
@@ -4252,7 +4743,7 @@ namespace StartDock.Views
 
             // A press-and-drag that started inside the rename TextBox is selecting its
             // text, not asking to move the whole category — leave it to the TextBox.
-            if (Keyboard.FocusedElement is TextBox)
+            if (Keyboard.FocusedElement is TextBox { DataContext: CategoryViewModel { IsRenaming: true } })
                 return;
 
             var current = e.GetPosition(null);
@@ -4362,7 +4853,15 @@ namespace StartDock.Views
                 tb.SelectAll();
         }
 
-        private void CategoryNameBox_LostFocus(object sender, RoutedEventArgs e) => CommitCategoryRename(sender as TextBox);
+        private void CategoryNameBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            CommitCategoryRename(sender as TextBox);
+            if ((sender as FrameworkElement)?.DataContext is CategoryViewModel { IsRenaming: true } vm)
+            {
+                vm.IsRenaming = false;
+                PersistConfig();
+            }
+        }
 
         private void CategoryNameBox_KeyDown(object sender, KeyEventArgs e)
         {
@@ -4399,16 +4898,44 @@ namespace StartDock.Views
             // name selected, ready to type over — mirrors RenameFolder_Click's own
             // "select all, ready to replace" feel. Deferred to Loaded priority so the
             // ItemsControl has actually generated the new item's container first.
-            Dispatcher.BeginInvoke(new Action(() =>
+            Dispatcher.BeginInvoke(new Action(() => BeginCategoryRename(categoryVm)),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        /// <summary>Puts a category's name box into editing (it only takes clicks and
+        /// focus while CategoryViewModel.IsRenaming — otherwise clicking the name
+        /// folds the category) and focuses it with the name selected. Enter or
+        /// clicking away saves; Esc puts the old name back.</summary>
+        private void BeginCategoryRename(CategoryViewModel vm)
+        {
+            vm.IsRenaming = true;
+            CategoriesItemsControl.UpdateLayout();
+            if (CategoriesItemsControl.ItemContainerGenerator.ContainerFromItem(vm) is DependencyObject container &&
+                FindVisualChild<TextBox>(container) is TextBox nameBox)
             {
-                CategoriesItemsControl.UpdateLayout();
-                if (CategoriesItemsControl.ItemContainerGenerator.ContainerFromItem(categoryVm) is DependencyObject container &&
-                    FindVisualChild<TextBox>(container) is TextBox nameBox)
-                {
-                    nameBox.Focus();
-                    nameBox.SelectAll();
-                }
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
+                nameBox.Focus();
+                nameBox.SelectAll();
+            }
+            else
+            {
+                vm.IsRenaming = false;
+            }
+        }
+
+        /// <summary>Click a category's name: fold it down to just the name, or open it
+        /// again. A press that turned into dragging the category doesn't count
+        /// (CategoryBanner_PreviewMouseMove clears the candidate when a drag starts).</summary>
+        private void CategoryBanner_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: CategoryViewModel vm } || vm.IsRenaming)
+                return;
+            if (!ReferenceEquals(_categoryDragCandidate, vm))
+                return;
+
+            _categoryDragCandidate = null;
+            vm.IsCollapsed = !vm.IsCollapsed;
+            PersistConfig();
+            e.Handled = true;
         }
 
         /// <summary>"Rename Category" on a category banner's right-click menu (see
@@ -4425,36 +4952,128 @@ namespace StartDock.Views
             if (sender is not MenuItem { Tag: CategoryViewModel vm })
                 return;
 
-            CategoriesItemsControl.UpdateLayout();
-            if (CategoriesItemsControl.ItemContainerGenerator.ContainerFromItem(vm) is DependencyObject container &&
-                FindVisualChild<TextBox>(container) is TextBox nameBox)
-            {
-                nameBox.Focus();
-                nameBox.SelectAll();
-            }
+            // After the menu has closed and handed focus back, or it takes the
+            // focus straight back off the name box.
+            Dispatcher.BeginInvoke(new Action(() => BeginCategoryRename(vm)),
+                System.Windows.Threading.DispatcherPriority.Input);
         }
 
-        /// <summary>"Remove Category" on the same right-click menu — sender is a
-        /// MenuItem now rather than the old hover-only Button, so this matches on
-        /// the FrameworkElement base both share rather than either type specifically.</summary>
+        /// <summary>"Remove Category" on a category name's right-click menu: removes
+        /// the category and every tile in it (folders included), after asking.</summary>
         private void DeleteCategory_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not FrameworkElement { Tag: CategoryViewModel vm })
                 return;
 
-            // Defensive re-check — the menu item's own IsEnabled already gates this
-            // to IsEmpty==True (see MainWindow.xaml's TextBox.ContextMenu), but
-            // that's a rendering/interaction concern, not a guarantee against a
-            // stale click landing after something else changed the category's
-            // contents in between.
-            if (!vm.IsEmpty)
+            int apps = vm.Icons.Sum(i => i.IsFolder ? i.Children.Count : 1);
+            string heading = apps == 0
+                ? $"Remove the category \"{vm.Name}\"?"
+                : $"Remove the category \"{vm.Name}\" and its {apps} {(apps == 1 ? "app" : "apps")}?";
+            string message = apps == 0
+                ? "It's empty, so nothing else is removed."
+                : "The apps are only removed from StartDock, not uninstalled. Any custom names, icons and Properties they have are lost.";
+
+            if (!AskFirst("Remove category", heading, message, "Remove"))
                 return;
+
+            foreach (var tile in vm.Icons)
+            {
+                if (tile.IsFolder)
+                    foreach (var child in tile.Children) DeleteCachedIcon(child);
+                else
+                    DeleteCachedIcon(tile);
+                _searchResults.Remove(tile);
+            }
 
             _config.Categories.Remove(vm.Model);
             _categories.Remove(vm);
 
             RefreshEmptyState();
             PersistConfig();
+        }
+
+        /// <summary>Shows ConfirmDialog with the dock kept open behind it.</summary>
+        private bool AskFirst(string title, string heading, string message, string confirmText)
+        {
+            _dialogOpen = true; // keep the dock open while the question has focus
+            try
+            {
+                return ConfirmDialog.Ask(this, title, heading, message, confirmText);
+            }
+            finally
+            {
+                _dialogOpen = false;
+                Activate();
+            }
+        }
+
+        /// <summary>Before removing a tile: asks only when something would be lost —
+        /// a folder (with the apps in it), or a tile with its own name, icon,
+        /// arguments, "Start in" folder or "Always run as administrator". A plain
+        /// tile is removed straight away, as before.</summary>
+        private bool ConfirmRemoveTile(DockIconViewModel vm)
+        {
+            if (vm.IsFolder)
+            {
+                int count = vm.Children.Count;
+                return AskFirst("Remove folder", $"Remove the folder \"{vm.Name}\" and its {count} {(count == 1 ? "app" : "apps")}?",
+                    "The apps are only removed from StartDock, not uninstalled.", "Remove");
+            }
+
+            var lost = new List<string>();
+            var model = vm.Model;
+            if (IsRenamed(model))
+                lost.Add("its name");
+            if ((model.CachedIconPath ?? string.Empty).Contains("-custom-", StringComparison.OrdinalIgnoreCase))
+                lost.Add("its custom icon");
+            if (!string.IsNullOrWhiteSpace(model.Arguments) || !string.IsNullOrWhiteSpace(model.WorkingDirectory) || model.RunAsAdmin)
+                lost.Add("its Properties settings");
+            if (lost.Count == 0)
+                return true;
+
+            string what = lost.Count == 1 ? lost[0]
+                : string.Join(", ", lost.Take(lost.Count - 1)) + " and " + lost[^1];
+            return AskFirst("Remove tile", $"Remove \"{vm.Name}\" from StartDock?",
+                $"You've customized it: {what} will be lost.", "Remove");
+        }
+
+        /// <summary>Whether a tile has a name of its own: renamed in StartDock (from
+        /// 0.9.4 on, remembered), or — for tiles renamed before then — a name that
+        /// isn't the one it would get when pinned.</summary>
+        private static bool IsRenamed(DockIcon icon)
+        {
+            if (icon.Renamed)
+                return true;
+
+            string target = icon.TargetPath ?? string.Empty;
+            string name = icon.Name ?? string.Empty;
+            const string appsFolder = "shell:AppsFolder\\";
+            try
+            {
+                if (target.StartsWith(appsFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    string id = target.Substring(appsFolder.Length);
+                    var app = InstalledAppsCache.Apps?.FirstOrDefault(a => string.Equals(a.Model.AppId, id, StringComparison.OrdinalIgnoreCase));
+                    return app != null && !string.Equals(app.Model.Name, name, StringComparison.OrdinalIgnoreCase);
+                }
+                if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    return AddWebsiteDialog.Normalize(target) is { } uri
+                        && !string.Equals(AddWebsiteDialog.NameFor(uri), name, StringComparison.OrdinalIgnoreCase);
+                }
+                if (target.Length > 0)
+                {
+                    string trimmed = target.TrimEnd('\\');
+                    return !string.Equals(name, Path.GetFileNameWithoutExtension(trimmed), StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(name, Path.GetFileName(trimmed), StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(name, target, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                // An odd target — treat the name as its own.
+            }
+            return false;
         }
 
         // ---------------------------------------------------------------
@@ -4564,6 +5183,7 @@ namespace StartDock.Views
             Height = _config.WindowHeight;
             ApplyAppearanceSettings();
             UpdateAutoSections();
+            RefreshRunningIndicators();
             SnapWidthToGridSoon(); // the icon size may have changed the column width
 
             // The dock stays visible (just behind the modal Settings dialog) the

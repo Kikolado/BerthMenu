@@ -41,7 +41,7 @@
          standalone. -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.9.3</Version>
+    <Version>0.9.4</Version>
     <Company>Roberto Regalado</Company>
     <Product>StartDock</Product>
     <Description>A lightweight, resizable icon-dock replacement for the Windows 11 Start Menu.</Description>
@@ -51,6 +51,12 @@
        Start button — see StartButtonOverlayService) are already referenced
        automatically because UseWPF is true; no explicit <Reference> is needed, and
        adding one causes an assembly-version resolution conflict at build time. -->
+
+  <!-- The release notes and tips, shown in StartDock's "What's new" and "Tips" windows (Services/Changelog.cs). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="StartDock.CHANGELOG.md" Link="CHANGELOG.md" />
+    <EmbeddedResource Include="Resources\Tips.md" LogicalName="StartDock.Tips.md" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />

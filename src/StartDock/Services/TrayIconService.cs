@@ -17,6 +17,9 @@ namespace StartDock.Services
         public event Action? OpenSettingsRequested;
         public event Action? OpenNativeStartMenuRequested;
         public event Action? RestartAsAdminRequested;
+        public event Action? WhatsNewRequested;
+        public event Action? TipsRequested;
+        public event Action? ReportProblemRequested;
         public event Action? ExitRequested;
 
         /// <param name="isRunningAsAdministrator">When true, hides "Restart as
@@ -38,6 +41,11 @@ namespace StartDock.Services
             menu.Items.Add("Settings...", null, (_, _) => OpenSettingsRequested?.Invoke());
             menu.Items.Add("Open Windows Start Menu", null, (_, _) => OpenNativeStartMenuRequested?.Invoke());
 
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("What's new", null, (_, _) => WhatsNewRequested?.Invoke());
+            menu.Items.Add("Tips", null, (_, _) => TipsRequested?.Invoke());
+            menu.Items.Add("Report a problem...", null, (_, _) => ReportProblemRequested?.Invoke());
+
             if (!isRunningAsAdministrator)
             {
                 menu.Items.Add(new ToolStripSeparator());
@@ -46,6 +54,9 @@ namespace StartDock.Services
 
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, (_, _) => ExitRequested?.Invoke());
+
+            // Follow StartDock's light/dark theme each time the menu opens.
+            menu.Opening += (_, _) => ApplyMenuTheme(menu);
 
             _notifyIcon = new NotifyIcon
             {
@@ -56,7 +67,16 @@ namespace StartDock.Services
             };
 
             _notifyIcon.DoubleClick += (_, _) => OpenDockRequested?.Invoke();
+            _notifyIcon.BalloonTipClicked += (_, _) =>
+            {
+                var action = _balloonClicked;
+                _balloonClicked = null;
+                action?.Invoke();
+            };
+            _notifyIcon.BalloonTipClosed += (_, _) => _balloonClicked = null;
         }
+
+        private Action? _balloonClicked;
 
         /// <summary>Reuses the .exe's own icon (Resources/StartDock.ico, wired up via
         /// the csproj's ApplicationIcon) for the tray, rather than embedding/loading a
@@ -85,11 +105,55 @@ namespace StartDock.Services
             return SystemIcons.Application;
         }
 
+        private static void ApplyMenuTheme(ContextMenuStrip menu)
+        {
+            bool dark;
+            try { dark = ThemeService.IsCurrentThemeDark(); }
+            catch { dark = false; }
+
+            if (!dark)
+            {
+                if (menu.Renderer is ToolStripProfessionalRenderer { ColorTable: DarkMenuColors })
+                    menu.RenderMode = ToolStripRenderMode.ManagerRenderMode;
+                foreach (ToolStripItem item in menu.Items)
+                    item.ForeColor = SystemColors.ControlText;
+                return;
+            }
+
+            menu.Renderer = new ToolStripProfessionalRenderer(new DarkMenuColors()) { RoundedEdges = false };
+            foreach (ToolStripItem item in menu.Items)
+                item.ForeColor = Color.FromArgb(240, 240, 240);
+        }
+
+        /// <summary>The tray menu's colors on the dark theme.</summary>
+        private sealed class DarkMenuColors : ProfessionalColorTable
+        {
+            private static readonly Color Back = Color.FromArgb(43, 43, 43);
+            private static readonly Color Hover = Color.FromArgb(61, 61, 61);
+            private static readonly Color Line = Color.FromArgb(70, 70, 70);
+
+            public override Color ToolStripDropDownBackground => Back;
+            public override Color ImageMarginGradientBegin => Back;
+            public override Color ImageMarginGradientMiddle => Back;
+            public override Color ImageMarginGradientEnd => Back;
+            public override Color MenuBorder => Line;
+            public override Color MenuItemBorder => Hover;
+            public override Color MenuItemSelected => Hover;
+            public override Color MenuItemSelectedGradientBegin => Hover;
+            public override Color MenuItemSelectedGradientEnd => Hover;
+            public override Color SeparatorDark => Line;
+            public override Color SeparatorLight => Back;
+        }
+
         public void Show() => _notifyIcon.Visible = true;
 
-        /// <summary>A Windows notification from the tray icon (used for updates).</summary>
-        public void ShowNotification(string title, string text) =>
+        /// <summary>A Windows notification from the tray icon (used for updates).
+        /// <paramref name="onClick"/> runs if it's clicked.</summary>
+        public void ShowNotification(string title, string text, Action? onClick = null)
+        {
+            _balloonClicked = onClick;
             _notifyIcon.ShowBalloonTip(5000, title, text, ToolTipIcon.Info);
+        }
 
         public void Dispose()
         {

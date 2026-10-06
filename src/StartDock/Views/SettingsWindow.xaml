@@ -67,7 +67,7 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
         </Style>
-        <Style TargetType="Button">
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Padding" Value="10,3"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
@@ -166,6 +166,18 @@
                                 <TextBlock x:Name="UpdateStatusText" Grid.Column="0" Style="{StaticResource RowLabel}"
                                            Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,8,0"/>
                                 <Button x:Name="CheckUpdatesButton" Grid.Column="1" Content="Check for updates" Click="CheckUpdates_Click"/>
+                            </Grid>
+                            <!-- Automatic settings backups — see ConfigService (Backups). -->
+                            <Grid Style="{StaticResource Row}" Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="BackupStatusText" Grid.Column="0" Style="{StaticResource RowLabel}"
+                                           Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,8,0"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <Button x:Name="RestoreBackupButton" Grid.Column="1" Content="Restore a backup…" Click="RestoreBackup_Click"
+                                        ToolTip="Your settings and pinned apps are backed up automatically, once a day when something changes. Pick one to go back to it."/>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -604,6 +616,9 @@
                                               Checked="HideBorderCheck_CheckedChanged" Unchecked="HideBorderCheck_CheckedChanged"/>
                                 </StackPanel>
                             </Grid>
+
+                            <CheckBox x:Name="ShowRunningIndicatorCheck" Content="Show a bar under open apps"
+                                      ToolTip="A small line under pinned apps that are running right now, like the taskbar."/>
                         </StackPanel>
                     </Border>
 
@@ -615,6 +630,8 @@
                             <CheckBox x:Name="SearchFilesCheck" Content="Include files"/>
                             <CheckBox x:Name="SearchCalculatorCheck" Content="Calculator"
                                       ToolTip="Type math like 125*4 or 15% of 80 to see the answer. Click it (or press Enter) to copy it."/>
+                            <CheckBox x:Name="SearchRunCheck" Content="Run commands and open paths"
+                                      ToolTip="Like the Windows Run box: type a command (cmd, notepad, ping 8.8.8.8) or a path (C:\Users, %AppData%) and press Enter. Ctrl+Shift+Enter runs it as administrator."/>
                             <Grid Style="{StaticResource Row}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
@@ -650,6 +667,14 @@
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock x:Name="VersionText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <TextBlock Margin="10,0,0,0" Opacity="0.75" Text="What's new"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextDecorations="Underline" Cursor="Hand"
+                           MouseLeftButtonUp="WhatsNew_Click"/>
+                <TextBlock Margin="10,0,0,0" Opacity="0.75" Text="Tips"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextDecorations="Underline" Cursor="Hand"
+                           MouseLeftButtonUp="Tips_Click"/>
                 <!-- "Update 0.9.1 available" once a newer version is found — click to
                      install it (see SettingsWindow.xaml.cs UpdateUpdaterStatus). -->
                 <TextBlock x:Name="UpdateAvailableText" Margin="10,0,0,0" Opacity="0.75"
