@@ -4,6 +4,10 @@
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
 
+## 0.9.5.1
+
+- Fixed: Border → Remove left a faint outline around the dock on Windows 11. It's gone now, so a see-through dock shows just your icons.
+
 ## 0.9.5
 
 - Welcome screen the first time StartDock runs: choose how to open it, where it opens, its look, the icon direction and alignment, and start with your most used apps already pinned (or an empty dock).

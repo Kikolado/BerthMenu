@@ -1807,7 +1807,7 @@ namespace StartDock.Views
                 OutlineBorder.BorderThickness = new Thickness(0);
                 _dividerThickness = 0;
                 ApplyDividerShape();
-                SetSystemBorderColor(null);
+                SetSystemBorderColor(null, hide: true);
                 return;
             }
 
@@ -1849,16 +1849,21 @@ namespace StartDock.Views
         /// outermost edge (on top of everything, since the window asks for rounded
         /// corners). Left at its default gray, it sat just outside a Bold border as
         /// a second, dimmer ring. This colors it to match Bold instead (null =
-        /// Windows' default). Ignored on Windows 10, which has no such attribute.</summary>
-        private void SetSystemBorderColor(Color? color)
+        /// Windows' default). <paramref name="hide"/> turns it off completely
+        /// (Border → Remove), so a transparent dock really is just floating icons.
+        /// Ignored on Windows 10, which has no such attribute.</summary>
+        private void SetSystemBorderColor(Color? color, bool hide = false)
         {
             try
             {
                 IntPtr hwnd = new WindowInteropHelper(this).EnsureHandle();
-                // COLORREF is 0x00BBGGRR; DWMWA_COLOR_DEFAULT is 0xFFFFFFFF.
-                int colorRef = color is Color c
-                    ? (c.B << 16) | (c.G << 8) | c.R
-                    : unchecked((int)0xFFFFFFFF);
+                // COLORREF is 0x00BBGGRR; DWMWA_COLOR_DEFAULT is 0xFFFFFFFF,
+                // DWMWA_COLOR_NONE (no border at all) is 0xFFFFFFFE.
+                int colorRef = hide
+                    ? unchecked((int)0xFFFFFFFE)
+                    : color is Color c
+                        ? (c.B << 16) | (c.G << 8) | c.R
+                        : unchecked((int)0xFFFFFFFF);
                 NativeMethods.DwmSetWindowAttribute(
                     hwnd,
                     NativeMethods.DwmWindowAttribute.DWMWA_BORDER_COLOR,
