@@ -1522,7 +1522,15 @@ namespace StartDock.Views
             {
                 IntPtr hwnd = new WindowInteropHelper(this).EnsureHandle();
 
-                int cornerPreference = (int)NativeMethods.DwmWindowCornerPreference.DWMWCP_ROUND;
+                // Asking for rounded corners also makes Windows 11 draw its own
+                // shadow around the window. With Border → Remove and no frosting,
+                // that shadow was the last thing outlining a see-through dock, so
+                // skip it then: the card is rounded by ApplyWindowRegion anyway.
+                // (Frosting still needs it so the blur gets rounded corners.)
+                bool noSystemFrame = _config.HideBorder && !_config.FrostedBackground;
+                int cornerPreference = (int)(noSystemFrame
+                    ? NativeMethods.DwmWindowCornerPreference.DWMWCP_DONOTROUND
+                    : NativeMethods.DwmWindowCornerPreference.DWMWCP_ROUND);
                 NativeMethods.DwmSetWindowAttribute(
                     hwnd,
                     NativeMethods.DwmWindowAttribute.DWMWA_WINDOW_CORNER_PREFERENCE,

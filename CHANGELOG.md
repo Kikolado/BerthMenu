@@ -4,6 +4,10 @@
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
 
+## 0.9.5.2
+
+- Fixed: with Border → Remove, Windows still drew a soft shadow around the dock. It's gone now (unless Frosted glass is on, which needs it for rounded corners), so a see-through dock really is just your icons.
+
 ## 0.9.5.1
 
 - Fixed: Border → Remove left a faint outline around the dock on Windows 11. It's gone now, so a see-through dock shows just your icons.
