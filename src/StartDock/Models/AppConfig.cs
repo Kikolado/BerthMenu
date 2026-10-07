@@ -25,6 +25,22 @@ namespace StartDock.Models
         Theme,
         White,
         Black,
+        Custom, // AppConfig.CustomBorderColor
+    }
+
+    /// <summary>See AppConfig.BackgroundColor. Append-only: stored as a number.</summary>
+    public enum BackgroundColorMode
+    {
+        Theme,
+        Custom, // AppConfig.CustomBackgroundColor
+    }
+
+    /// <summary>See AppConfig.AccentColor. Append-only: stored as a number.</summary>
+    public enum AccentColorMode
+    {
+        Theme,
+        Windows, // the accent color chosen in Windows Settings → Personalization → Colors
+        Custom,  // AppConfig.CustomAccentColor
     }
 
     /// <summary>Light or dark visual theme for the dock chrome.</summary>
@@ -45,7 +61,8 @@ namespace StartDock.Models
     {
         Default,
         Black,
-        White
+        White,
+        Custom, // AppConfig.CustomTextColor
     }
 
     /// <summary>Which tint Windows' frosted-glass material uses (see
@@ -84,7 +101,8 @@ namespace StartDock.Models
     {
         Theme,
         Black,
-        White
+        White,
+        Custom, // AppConfig.CustomIconBackgroundColor
     }
 
     /// <summary>Which modifier keys must be held for HotkeyMode.Custom's activation
@@ -259,6 +277,24 @@ namespace StartDock.Models
         /// Black/White pin it to a literal color instead. See MainWindow.xaml.cs's
         /// ApplyTextColor.</summary>
         public TextColorMode TextColor { get; set; } = TextColorMode.Default;
+
+        // The colors behind each "Custom color" choice, as "#RRGGBB". Kept when
+        // another choice is picked, so switching back to Custom brings them back.
+        public string CustomTextColor { get; set; } = "#FFFFFF";
+        public string CustomIconBackgroundColor { get; set; } = "#0078D4";
+        public string CustomBorderColor { get; set; } = "#0078D4";
+        public string CustomBackgroundColor { get; set; } = "#1F2A3A";
+        public string CustomAccentColor { get; set; } = "#0078D4";
+
+        /// <summary>The dock's background color (Settings → Background → Color):
+        /// the theme's, or CustomBackgroundColor. Opacity, frosted glass and a
+        /// background picture still apply on top.</summary>
+        public BackgroundColorMode BackgroundColor { get; set; } = BackgroundColorMode.Theme;
+
+        /// <summary>The dock's highlight color (Settings → Look → Accent color): the
+        /// running-app bar, Alt+number badges and focus outlines, plus a tint of it
+        /// for hover, pressed tiles, folder previews and "Theme" icon tiles.</summary>
+        public AccentColorMode AccentColor { get; set; } = AccentColorMode.Theme;
 
         /// <summary>Light or dark variant of the frosted-glass material
         /// (FrostedBackground). Windows' acrylic isn't a plain blur: it lays a
@@ -522,7 +558,7 @@ namespace StartDock.Models
         /// <summary>Rows (the original layout) or Columns.</summary>
         public LayoutDirection LayoutDirection { get; set; } = LayoutDirection.Rows;
 
-        /// <summary>Rows layout: dragging the dock's right edge snaps its width to
+        /// <summary>Rows layout: dragging the dock's left or right edge snaps its width to
         /// whole columns of icons, so rows end without a gap. Off: the width follows
         /// the mouse smoothly (handy with Center row alignment, where any leftover
         /// space is split evenly anyway). The Columns layout never snaps.</summary>

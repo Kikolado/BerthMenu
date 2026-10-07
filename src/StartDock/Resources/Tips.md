@@ -27,6 +27,7 @@
 - Drag a category's name to move the whole category.
 - Drop one tile onto the middle of another to group them into a folder.
 - Drag a tile into the empty strip under the last category to start a new category.
+- Resize the dock by dragging its edges (the ones away from the screen edge it sits against), or a corner between two of them to change both at once. Hover near an edge to see where to grab.
 
 ## Customizing tiles
 
@@ -41,3 +42,4 @@
 ## Settings
 
 - Can't find a setting? Type in the search box at the top of Settings, or press Ctrl+F there.
+- Any color dropdown's "Custom color" opens a color picker. Click the square beside it to change the color later.

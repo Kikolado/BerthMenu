@@ -25,5 +25,11 @@
          of its own, separately-configured color. -->
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
     <SolidColorBrush x:Key="DividerBrush" Color="{StaticResource DividerColor}"/>
+    <!-- Text drawn on AccentBrush (the Alt+number badges). -->
+    <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF"/>
+    <!-- The dock's search and folder-name boxes. Same color as TileHoverBrush, but
+         separate so a custom Accent color (which tints the hover brushes) leaves
+         them alone. -->
+    <SolidColorBrush x:Key="FieldBrush" Color="{StaticResource TileHoverColor}"/>
 
 </ResourceDictionary>

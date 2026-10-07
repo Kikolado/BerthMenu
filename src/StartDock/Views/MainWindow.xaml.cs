@@ -46,8 +46,6 @@ namespace StartDock.Views
         private readonly FullscreenTaskbarService _fullscreenTaskbar = new();
 
         // Resize-drag state
-        private bool _resizingTop;
-        private bool _resizingRight;
         private Point _resizeStartPoint; // in physical screen pixels (see PointToScreen)
         private double _resizeDpiScaleX = 1.0, _resizeDpiScaleY = 1.0;
         private double _startHeight, _startWidth, _startTop;
@@ -63,7 +61,7 @@ namespace StartDock.Views
         // How much of the window's own Width is "chrome" — everything that isn't the
         // icon grid itself (the search box row, the divider, the bottom bar,
         // BackgroundBorder/margins) — captured fresh at the start of each resize drag (see
-        // RightResizeGrip_MouseLeftButtonDown) and used to snap the dragged edge to
+        // ResizeGrip_MouseLeftButtonDown) and used to snap the dragged edge to
         // whichever whole number of tile columns it's closest to (see SnapWidth), the
         // same "resize jumps between fixed grid-aligned sizes" feel the Windows 10
         // Start Menu has, rather than tracking the cursor pixel-for-pixel.
@@ -75,7 +73,7 @@ namespace StartDock.Views
         // "whole number of rows" the *window's total height* could cleanly land on,
         // since each category can be a different number of rows tall and the stack's
         // total height also includes a banner per category. So height-snapping was
-        // dropped outright; the top-edge drag (see TopResizeGrip_MouseMove) is back to
+        // dropped outright; the height drag (see ResizeGrip_MouseMove) is back to
         // a plain clamp, exactly like before either kind of snapping existed. Width
         // snapping still holds up fine, since column count is a single value shared
         // uniformly across every category.
@@ -925,6 +923,7 @@ namespace StartDock.Views
             // color) before the Opacity fade right below touches *how visible* that
             // is — see ApplyBackgroundImage's own comment for why this has to run
             // first rather than the other way round.
+            ApplyDockColors();
             ApplyBackgroundImage();
             ApplyFrostedBackground();
             ApplyBorderStyle();
@@ -1289,6 +1288,7 @@ namespace StartDock.Views
             _menuBarVertical = vertical;
             ApplyDividerShape();
             LayoutMenuBarButtons(vertical, placement == MenuBarPlacement.Right);
+            UpdateResizeGrips();
         }
 
         private bool _menuBarVertical;
@@ -1348,16 +1348,13 @@ namespace StartDock.Views
             {
                 MenuBarRow.Height = double.NaN;
                 MenuBarRow.Width = 52;
-                // Keep the buttons clear of the 10px resize grips along the top edge
-                // (TopResizeGrip) and, on the right side, the right edge
-                // (RightResizeGrip), so an edge never steals a click.
-                MenuBarRow.Margin = new Thickness(0, 2, rightSide ? 6 : 0, 0);
+                // UpdateResizeGrips sets the margin that keeps the buttons clear of
+                // the resize grips.
             }
             else
             {
                 MenuBarRow.Width = double.NaN;
                 MenuBarRow.Height = 52;
-                MenuBarRow.Margin = new Thickness(0);
             }
 
             for (int slot = 0; slot < _menuBarButtons.Length; slot++)
@@ -1518,8 +1515,49 @@ namespace StartDock.Views
         {
             FrostTintMode.Dark => true,
             FrostTintMode.Light => false,
-            _ => ThemeService.ResolveIsDark(_config.Theme),
+            // Match theme follows a custom background color when there is one.
+            _ => _config.BackgroundColor == BackgroundColorMode.Custom
+                ? ColorUtil.IsDark(ColorUtil.Parse(_config.CustomBackgroundColor, Colors.Black))
+                : ThemeService.ResolveIsDark(_config.Theme),
         };
+
+        /// <summary>Settings → Background → Color, Look → Accent color and the
+        /// custom Icon tiles color. Each overrides the theme's brush on this window
+        /// only (Settings and the other windows keep the theme's colors), or removes
+        /// the override to go back to the theme. The theme's brushes are
+        /// DynamicResources, so everything in the dock picks the change up.</summary>
+        private void ApplyDockColors()
+        {
+            if (_config.BackgroundColor == BackgroundColorMode.Custom)
+                Resources["DockBackgroundBrush"] = ColorUtil.Brush(ColorUtil.Parse(_config.CustomBackgroundColor, Colors.Black));
+            else
+                Resources.Remove("DockBackgroundBrush");
+
+            Color? accent = _config.AccentColor switch
+            {
+                AccentColorMode.Windows => ColorUtil.WindowsAccent(),
+                AccentColorMode.Custom => ColorUtil.Parse(_config.CustomAccentColor, Color.FromRgb(0x00, 0x78, 0xD4)),
+                _ => null,
+            };
+            if (accent is Color a)
+            {
+                Resources["AccentBrush"] = ColorUtil.Brush(a);
+                Resources["OnAccentBrush"] = ColorUtil.Brush(ColorUtil.IsDark(a) ? Colors.White : Colors.Black);
+                // Hover and pressed become a see-through tint of the accent, so
+                // they work on any background.
+                Resources["TileHoverBrush"] = ColorUtil.Brush(a, 0x40);
+                Resources["TilePressedBrush"] = ColorUtil.Brush(a, 0x66);
+            }
+            else
+            {
+                Resources.Remove("AccentBrush");
+                Resources.Remove("OnAccentBrush");
+                Resources.Remove("TileHoverBrush");
+                Resources.Remove("TilePressedBrush");
+            }
+
+            Resources["CustomTileBrush"] = ColorUtil.Brush(ColorUtil.Parse(_config.CustomIconBackgroundColor, Color.FromRgb(0x00, 0x78, 0xD4)));
+        }
 
         // True while the dock fades or slides inside its own window: the parts
         // Windows draws around it (frosted glass, its 1px border and its shadow)
@@ -1848,6 +1886,7 @@ namespace StartDock.Views
             {
                 BorderColorMode.White => Colors.White,
                 BorderColorMode.Black => Colors.Black,
+                BorderColorMode.Custom => ColorUtil.Parse(_config.CustomBorderColor, Colors.White),
                 _ => null,
             };
 
@@ -1940,8 +1979,12 @@ namespace StartDock.Views
                 return;
             }
 
-            var brush = new SolidColorBrush(_config.TextColor == TextColorMode.White ? Colors.White : Colors.Black);
-            brush.Freeze();
+            var brush = ColorUtil.Brush(_config.TextColor switch
+            {
+                TextColorMode.White => Colors.White,
+                TextColorMode.Custom => ColorUtil.Parse(_config.CustomTextColor, Colors.White),
+                _ => Colors.Black,
+            });
 
             Resources["PrimaryTextBrush"] = brush;
             Resources["SecondaryTextBrush"] = brush;
@@ -2180,6 +2223,13 @@ namespace StartDock.Views
 
             PositionDock();
             SearchBox.Text = string.Empty;
+
+            // Windows accent color: picks up a change made in Windows since the
+            // dock last opened (only when it changed, so opening stays quick).
+            if (_config.AccentColor == AccentColorMode.Windows
+                && Resources["AccentBrush"] is SolidColorBrush shownAccent
+                && shownAccent.Color != ColorUtil.WindowsAccent())
+                ApplyDockColors();
 
             // Before Show/Activate: the raise puts the taskbar at the top of the
             // topmost band, and the dock activating right after puts itself back
@@ -6554,132 +6604,183 @@ namespace StartDock.Views
         private void ShutDown_Click(object sender, RoutedEventArgs e) { PowerFlyoutPopup.IsOpen = false; PowerActions.ShutDown(); }
 
         // ---------------------------------------------------------------
-        // Resizing (top edge = height, right edge = width; bottom-left stays anchored)
+        // Resizing: drag an edge that faces away from where the dock is anchored
         // ---------------------------------------------------------------
 
-        // Captured once at the start of a resize drag (see *ResizeGrip_MouseLeftButtonDown)
-        // and reused for that whole drag by TopResizeGrip_MouseMove's Middle center
-        // branch and by RepositionHorizontallyDuringResize — rather than asking Win32
-        // for the target monitor's DPI-aware work area (see GetTargetWorkArea) again
-        // on every single mouse-move tick a drag fires. The monitor a resize starts
-        // on isn't going to change mid-drag, so one lookup per drag gesture is enough.
+        // Captured once at the start of a resize drag (see ResizeGrip_MouseLeftButtonDown)
+        // and reused for that whole drag — the monitor a resize starts on isn't
+        // going to change mid-drag, so one lookup per drag is enough.
         private Rect _resizeWorkArea;
 
-        private void TopResizeGrip_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        /// <summary>Where the dock is pinned along one direction: to the start edge
+        /// (left / top), the end edge (right / bottom), or centered.</summary>
+        private enum Anchor { Start, Center, End }
+
+        private Anchor HorizontalAnchor() => _config.Position switch
         {
-            _resizingTop = true;
+            DockPosition.BottomLeft or DockPosition.TopLeft or DockPosition.MiddleLeft => Anchor.Start,
+            DockPosition.BottomRight or DockPosition.TopRight or DockPosition.MiddleRight => Anchor.End,
+            _ => Anchor.Center,
+        };
+
+        private Anchor VerticalAnchor() => _config.Position switch
+        {
+            DockPosition.TopLeft or DockPosition.TopCenter or DockPosition.TopRight => Anchor.Start,
+            DockPosition.BottomLeft or DockPosition.BottomCenter or DockPosition.BottomRight => Anchor.End,
+            _ => Anchor.Center,
+        };
+
+        /// <summary>Shows the grips on the edges that can move for this Dock
+        /// Position — the ones facing away from its anchor, or both for a centered
+        /// direction — and keeps the menu bar's buttons out from under them. Called
+        /// from ApplyMenuBarPosition (so on startup and on every Settings save).</summary>
+        private void UpdateResizeGrips()
+        {
+            var h = HorizontalAnchor();
+            var v = VerticalAnchor();
+            bool left = h != Anchor.Start, right = h != Anchor.End;
+            bool top = v != Anchor.Start, bottom = v != Anchor.End;
+
+            LeftResizeGrip.Visibility = left ? Visibility.Visible : Visibility.Collapsed;
+            RightResizeGrip.Visibility = right ? Visibility.Visible : Visibility.Collapsed;
+            TopResizeGrip.Visibility = top ? Visibility.Visible : Visibility.Collapsed;
+            BottomResizeGrip.Visibility = bottom ? Visibility.Visible : Visibility.Collapsed;
+            // A corner works where both edges beside it do.
+            TopLeftResizeGrip.Visibility = top && left ? Visibility.Visible : Visibility.Collapsed;
+            TopRightResizeGrip.Visibility = top && right ? Visibility.Visible : Visibility.Collapsed;
+            BottomLeftResizeGrip.Visibility = bottom && left ? Visibility.Visible : Visibility.Collapsed;
+            BottomRightResizeGrip.Visibility = bottom && right ? Visibility.Visible : Visibility.Collapsed;
+
+            // The menu bar's buttons are 40px in a 52px bar, so 6px of it is free
+            // along each edge; the 8px grips need a little more room than that.
+            var placement = _config.GetMenuBarPlacement();
+            bool barShown = !_config.HideMenuBar;
+            const double clear = 4; // pushes the buttons past the grip
+            MenuBarRow.Margin = !barShown ? new Thickness(0) : placement switch
+            {
+                MenuBarPlacement.Top => new Thickness(0, top ? clear : 0, 0, 0),
+                MenuBarPlacement.Bottom => new Thickness(0, 0, 0, bottom ? clear : 0),
+                MenuBarPlacement.Left => new Thickness(left ? clear : 0, top ? 2 + clear : 2, 0, bottom ? clear : 0),
+                _ => new Thickness(0, top ? 2 + clear : 2, right ? clear : 0, bottom ? clear : 0), // Right
+            };
+
+            // The side grips stay clear of a top/bottom menu bar's row (52px plus the
+            // divider), and the top/bottom grips of a left/right bar's column.
+            bool barLeft = barShown && placement == MenuBarPlacement.Left;
+            bool barRight = barShown && placement == MenuBarPlacement.Right;
+            bool barTop = barShown && placement == MenuBarPlacement.Top;
+            bool barBottom = barShown && placement == MenuBarPlacement.Bottom;
+            var sideMargin = new Thickness(0, barTop ? 70 : 12, 0, barBottom ? 70 : 12);
+            LeftResizeGrip.Margin = sideMargin;
+            RightResizeGrip.Margin = sideMargin;
+            var endMargin = new Thickness(barLeft ? 70 : 12, 0, barRight ? 70 : 12, 0);
+            TopResizeGrip.Margin = endMargin;
+            BottomResizeGrip.Margin = endMargin;
+        }
+
+        // The edges being dragged right now: "Left"/"Right" and/or "Top"/"Bottom"
+        // (both for a corner), null when not resizing.
+        private string? _resizeHorizontalEdge, _resizeVerticalEdge;
+
+        private bool Resizing => _resizeHorizontalEdge != null || _resizeVerticalEdge != null;
+        private bool ResizingWidth => _resizeHorizontalEdge != null;
+
+        private void ResizeGrip_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not FrameworkElement grip || grip.Tag is not string edges)
+                return;
+
+            // Tag names the edge(s) the grip moves: "Top", "Left", "Bottom Right"…
+            _resizeHorizontalEdge = edges.Contains("Left") ? "Left" : edges.Contains("Right") ? "Right" : null;
+            _resizeVerticalEdge = edges.Contains("Top") ? "Top" : edges.Contains("Bottom") ? "Bottom" : null;
             _resizeStartPoint = PointToScreen(e.GetPosition(this));
             CaptureCurrentDpiScale();
+            _startWidth = Width;
             _startHeight = Height;
             _startTop = Top;
             _resizeWorkArea = GetTargetWorkArea();
 
-            ((UIElement)sender).CaptureMouse();
-        }
-
-        /// <summary>Plain clamp, no grid-row snapping — see the doc comment on
-        /// <see cref="_chromeWidth"/> for why height-snapping (which this used to
-        /// do) was dropped once the grid became a vertical stack of independently
-        /// wrapping category rows.
-        ///
-        /// Top's own math branches on DockPosition: BottomLeft/BottomCenter/
-        /// BottomRight are anchored to the *bottom* of the work area, so growing
-        /// height needs to keep that bottom edge fixed and extend upward instead
-        /// (the original, unconditional formula, kept as-is for those three).
-        /// Middle center has no edge to anchor to at all — it's vertically
-        /// centered — so it needs Top recomputed from the work area's vertical
-        /// center on every move instead, the same formula PositionDock uses, or
-        /// growing/shrinking height would visibly drag it off-center until the
-        /// dock was next closed and reopened (PositionDock's own fix, but only
-        /// applied at ShowDock time). TopCenter/TopRight keep the original
-        /// bottom-fixed formula too, for now, even though they're top-anchored —
-        /// see the review notes if this class picks up more edge cases than these
-        /// six positions later.</summary>
-        private void TopResizeGrip_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (!_resizingTop || e.LeftButton != MouseButtonState.Pressed) return;
-
-            // PointToScreen returns physical pixels, while Window.Height/Top are DIPs —
-            // convert the delta through the DPI scale captured at drag-start so resizing
-            // tracks the mouse 1:1 at any display scaling (100%, 125%, 150%, ...).
-            var current = PointToScreen(e.GetPosition(this));
-            double deltaDip = (_resizeStartPoint.Y - current.Y) / _resizeDpiScaleY; // dragging up increases height
-            double newHeight = Clamp(_startHeight + deltaDip, MinHeight, MaxHeight);
-
-            Height = newHeight;
-
-            // MiddleLeft/MiddleRight are vertically centered against a side edge, the
-            // same as Center is against the whole work area — same recompute-from-
-            // center reasoning as this method's doc comment gives for Center itself.
-            if (_config.Position == DockPosition.Center
-                || _config.Position == DockPosition.MiddleLeft
-                || _config.Position == DockPosition.MiddleRight)
-                Top = _resizeWorkArea.Top + (_resizeWorkArea.Height - newHeight) / 2;
-            else
-                Top = _startTop + (_startHeight - newHeight); // keep bottom edge fixed
-        }
-
-        private void RightResizeGrip_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            _resizingRight = true;
-            _resizeStartPoint = PointToScreen(e.GetPosition(this));
-            CaptureCurrentDpiScale();
-            _startWidth = Width;
-            _resizeWorkArea = GetTargetWorkArea();
-
             // Everything across the dock that isn't the tiles themselves — see
             // TileAreaWidth for what that includes.
-            _chromeWidth = Width - TileAreaWidth();
+            if (ResizingWidth)
+                _chromeWidth = Width - TileAreaWidth();
 
-            ((UIElement)sender).CaptureMouse();
+            grip.CaptureMouse();
+            e.Handled = true;
         }
 
-        private void RightResizeGrip_MouseMove(object sender, MouseEventArgs e)
+        /// <summary>Resizes from the dragged edge (or both edges, for a corner). The
+        /// opposite edge stays where it
+        /// is, except when the dock is centered in that direction: then both edges
+        /// move, so the size changes by twice the mouse's movement and the dragged
+        /// edge stays under the mouse while the dock stays centered.</summary>
+        private void ResizeGrip_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!_resizingRight || e.LeftButton != MouseButtonState.Pressed) return;
+            if (!Resizing || e.LeftButton != MouseButtonState.Pressed) return;
 
+            // PointToScreen returns physical pixels, while Width/Height/Top are DIPs —
+            // convert through the DPI scale captured at drag start so resizing tracks
+            // the mouse 1:1 at any display scaling.
             var current = PointToScreen(e.GetPosition(this));
-            double deltaDip = (current.X - _resizeStartPoint.X) / _resizeDpiScaleX; // dragging right increases width
-            // Columns: categories sit side by side with widths of their own, so
-            // there's no single grid to snap to — resize freely.
-            // Snapping is a setting (AppConfig.SnapDockWidth). Columns never snap:
-            // categories sit side by side with widths of their own, so there's no
-            // single grid to line up with.
-            Width = IsColumnLayout || !_config.SnapDockWidth
-                ? Clamp(_startWidth + deltaDip, MinWidth, MaxWidth)
-                : SnapWidth(_startWidth + deltaDip);
+            double dx = (current.X - _resizeStartPoint.X) / _resizeDpiScaleX;
+            double dy = (current.Y - _resizeStartPoint.Y) / _resizeDpiScaleY;
 
-            RepositionHorizontallyDuringResize();
+            if (ResizingWidth)
+            {
+                double outward = _resizeHorizontalEdge == "Right" ? dx : -dx;
+                double grow = HorizontalAnchor() == Anchor.Center ? outward * 2 : outward;
+                // Snapping is a setting (AppConfig.SnapDockWidth). Columns never snap:
+                // categories sit side by side with widths of their own, so there's no
+                // single grid to line up with.
+                Width = IsColumnLayout || !_config.SnapDockWidth
+                    ? Clamp(_startWidth + grow, MinWidth, MaxWidth)
+                    : SnapWidth(_startWidth + grow);
+                RepositionHorizontallyDuringResize();
+            }
+
+            if (_resizeVerticalEdge != null)
+            {
+                // No height snapping — see the doc comment on _chromeWidth.
+                double outward = _resizeVerticalEdge == "Bottom" ? dy : -dy;
+                double grow = VerticalAnchor() == Anchor.Center ? outward * 2 : outward;
+                Height = Clamp(_startHeight + grow, MinHeight, MaxHeight);
+                RepositionVerticallyDuringResize();
+            }
         }
 
-        /// <summary>Keeps Left correct for whatever DockPosition is configured *while*
-        /// the width resize-grip is being dragged — called after every Width change
-        /// in RightResizeGrip_MouseMove — rather than only the next time the dock
-        /// happens to be (re)shown, which is all PositionDock alone gives you (it
-        /// runs once, at ShowDock, and nothing kept it in sync with a live-changing
-        /// Width after that). Three cases: BottomLeft needs nothing at all (Left
-        /// already stays put on its own, untouched here); TopRight/BottomRight are
-        /// right-anchored, so they need Left recomputed to keep the *right* edge
-        /// fixed as Width grows, the mirror image of BottomLeft's left anchor;
-        /// everything else (BottomCenter/TopCenter/Middle center) is horizontally
-        /// centered, needing the same centering formula PositionDock uses.</summary>
+        /// <summary>Keeps Left right for the Dock Position while the width changes:
+        /// a left-anchored dock needs nothing, a right-anchored one keeps its right
+        /// edge in place, and a centered one stays centered (the same formulas as
+        /// PositionDock).</summary>
         private void RepositionHorizontallyDuringResize()
         {
-            switch (_config.Position)
+            switch (HorizontalAnchor())
             {
-                case DockPosition.BottomLeft:
-                case DockPosition.TopLeft:
-                case DockPosition.MiddleLeft:
-                    return; // left-anchored — Left already stays put on its own
-
-                case DockPosition.TopRight:
-                case DockPosition.BottomRight:
-                case DockPosition.MiddleRight:
+                case Anchor.Start:
+                    return; // Left already stays put
+                case Anchor.End:
                     Left = _resizeWorkArea.Right - Width - 6;
                     return;
-
                 default:
                     Left = _resizeWorkArea.Left + (_resizeWorkArea.Width - Width) / 2;
+                    return;
+            }
+        }
+
+        /// <summary>The same for Top while the height changes: a bottom-anchored dock
+        /// keeps its bottom edge in place, a top-anchored one needs nothing, and a
+        /// vertically centered one (Middle left/center/right) stays centered.</summary>
+        private void RepositionVerticallyDuringResize()
+        {
+            switch (VerticalAnchor())
+            {
+                case Anchor.Start:
+                    return; // Top already stays put
+                case Anchor.End:
+                    Top = _startTop + (_startHeight - Height);
+                    return;
+                default:
+                    Top = _resizeWorkArea.Top + (_resizeWorkArea.Height - Height) / 2;
                     return;
             }
         }
@@ -6733,7 +6834,7 @@ namespace StartDock.Views
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
             {
                 if (IsColumnLayout || !_config.SnapDockWidth || !IsVisible
-                    || CategoriesScrollViewer.ActualWidth <= 0 || _resizingRight)
+                    || CategoriesScrollViewer.ActualWidth <= 0 || ResizingWidth)
                     return;
 
                 _chromeWidth = Width - TileAreaWidth();
@@ -6758,10 +6859,10 @@ namespace StartDock.Views
 
         private void ResizeGrip_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (!_resizingTop && !_resizingRight) return;
+            if (!Resizing) return;
 
-            _resizingTop = false;
-            _resizingRight = false;
+            _resizeHorizontalEdge = null;
+            _resizeVerticalEdge = null;
             ((UIElement)sender).ReleaseMouseCapture();
 
             _config.WindowWidth = Width;

@@ -73,7 +73,7 @@
                     MinWidth="16" Height="16" Padding="3,0" CornerRadius="3"
                     Background="{DynamicResource AccentBrush}" IsHitTestVisible="False"
                     Visibility="{Binding HasShortcutBadge, Converter={StaticResource BoolToVis}}">
-                <TextBlock Text="{Binding ShortcutBadge}" FontSize="10" FontWeight="SemiBold" Foreground="White"
+                <TextBlock Text="{Binding ShortcutBadge}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource OnAccentBrush}"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <Button x:Name="TileButton"
@@ -247,6 +247,14 @@
                     </MultiDataTrigger.Conditions>
                     <Setter TargetName="TileBg" Property="Background" Value="White"/>
                 </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=ShowIconBackground}" Value="True"/>
+                        <Condition Binding="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=IconBackgroundColor}" Value="Custom"/>
+                    </MultiDataTrigger.Conditions>
+                    <!-- Set by MainWindow.ApplyDockColors. -->
+                    <Setter TargetName="TileBg" Property="Background" Value="{DynamicResource CustomTileBrush}"/>
+                </MultiDataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 
@@ -302,6 +310,19 @@
         <ItemsPanelTemplate x:Key="FlowGridPanelTemplate">
             <WrapPanel Orientation="Horizontal"/>
         </ItemsPanelTemplate>
+
+        <!-- See the resize grips near the end of this file. -->
+        <Style x:Key="ResizeGripStyle" TargetType="Border">
+            <Setter Property="Background" Value="Transparent"/>
+            <EventSetter Event="MouseLeftButtonDown" Handler="ResizeGrip_MouseLeftButtonDown"/>
+            <EventSetter Event="MouseMove" Handler="ResizeGrip_MouseMove"/>
+            <EventSetter Event="MouseLeftButtonUp" Handler="ResizeGrip_MouseLeftButtonUp"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource TileHoverBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <!-- The window itself has no border/shadow (AllowsTransparency lets pixels
@@ -373,6 +394,24 @@
             </Border.Effect>
         </Border>
 
+        <!-- Corner resize grips (diagonal), shown where both edges beside a corner
+             can be dragged (MainWindow.UpdateResizeGrips). Unlike the edge grips at
+             the end of this file, these sit UNDER the dock's content: a menu bar
+             button or other control reaching into a corner keeps its clicks, and
+             the corner grabs only where nothing else is. -->
+        <Border x:Name="TopLeftResizeGrip" Tag="Top Left" Width="14" Height="14"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                Cursor="SizeNWSE" Style="{StaticResource ResizeGripStyle}" Visibility="Collapsed"/>
+        <Border x:Name="TopRightResizeGrip" Tag="Top Right" Width="14" Height="14"
+                HorizontalAlignment="Right" VerticalAlignment="Top"
+                Cursor="SizeNESW" Style="{StaticResource ResizeGripStyle}" Visibility="Collapsed"/>
+        <Border x:Name="BottomLeftResizeGrip" Tag="Bottom Left" Width="14" Height="14"
+                HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                Cursor="SizeNESW" Style="{StaticResource ResizeGripStyle}" Visibility="Collapsed"/>
+        <Border x:Name="BottomRightResizeGrip" Tag="Bottom Right" Width="14" Height="14"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Cursor="SizeNWSE" Style="{StaticResource ResizeGripStyle}" Visibility="Collapsed"/>
+
         <!-- x:Name="ContentGrid": its RowDefinitions (and every child's Grid.Row
              below) are rebuilt from scratch at runtime by MainWindow.xaml.cs's
              ApplyMenuBarPosition, per AppConfig.MenuBarAtTop — the Auto/*/Auto/Auto
@@ -401,7 +440,7 @@
                     <TextBox x:Name="SearchBox"
                              Padding="10,8"
                              FontSize="14"
-                             Background="{DynamicResource TileHoverBrush}"
+                             Background="{DynamicResource FieldBrush}"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              BorderThickness="0"
                              Text=""
@@ -448,7 +487,7 @@
                     <TextBox x:Name="FolderNameBox" Grid.Column="1"
                              Padding="10,8"
                              FontSize="14"
-                             Background="{DynamicResource TileHoverBrush}"
+                             Background="{DynamicResource FieldBrush}"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              BorderThickness="0"
                              Margin="8,0,0,0"
@@ -991,76 +1030,22 @@
                 CornerRadius="8"
                 IsHitTestVisible="False"/>
 
-        <!-- Resize grips: drag the top edge to change height (bottom stays anchored),
-             drag the right edge to change width. Transparent and invisible at rest —
-             just hit-testable — but each shows a faint highlight strip on hover (see
-             the Style/Trigger below on each) regardless of AppConfig.BackgroundOpacity,
-             which BackgroundBorder alone is faded by (see MainWindow.xaml.cs's
-             ApplyAppearanceSettings) — these two Borders are separate siblings, not
-             children of it, and sit later in this Grid so they already paint on top
-             of it. At 0% background opacity the rest of the dock is intentionally
-             fully invisible, but there'd otherwise be no way to even find these two
-             10px-wide edge strips to grab in the first place; hovering (not clicking)
-             is enough to reveal exactly where they are without permanently showing
-             any chrome the 0%-opacity setting was specifically asked for. Background
-             is set only via each Style below now, not as a plain attribute here
-             directly — a local attribute value would out-rank the Style's own
-             IsMouseOver Setter (local values always beat style setters in WPF), which
-             would silently make the hover highlight never actually show.
-
-             Both used to sit mostly in the 10px margin outside BackgroundBorder,
-             straddling its edge. Now that margin has shrunk to 2px (see
-             BackgroundBorder's own comment on why), there's nowhere near enough
-             room out there for a 10px grip any more, so each now sits flush
-             against its own edge of the *window* instead and reaches inward over
-             the card's own content — invisible at rest either way, so this isn't
-             a visual change, but it does mean they're now Z-ordered on top of
-             real, clickable content near that edge for the first time. -->
-        <Border x:Name="TopResizeGrip" Height="10" VerticalAlignment="Top" Margin="10,0,10,0"
-                Cursor="SizeNS"
-                MouseLeftButtonDown="TopResizeGrip_MouseLeftButtonDown"
-                MouseMove="TopResizeGrip_MouseMove"
-                MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Background" Value="Transparent"/>
-                    <Style.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource TileHoverBrush}"/>
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-        </Border>
-
-        <!-- Margin.Top/Bottom="70" (rather than a small, symmetric value like
-             TopResizeGrip's own left/right 10) is deliberate: it keeps this grip
-             clear of the menu bar's own icon row — 52px tall plus the divider —
-             at whichever end that bar currently sits (AppConfig.MenuBarAtTop can
-             put it at either the top or the bottom of the dock), so it can never
-             sit on top of a real, clickable menu-bar button. That's a hard
-             requirement now that this grip reaches over real content instead of
-             empty margin (see the shared comment above) — a resize-vs-click
-             conflict right on a menu-bar icon would be a lot more noticeable than
-             losing a *little* grabbable length at the very top and bottom of the
-             remaining edge, which is still most of the window's height either
-             way. -->
-        <Border x:Name="RightResizeGrip" Width="10" HorizontalAlignment="Right" Margin="0,70,0,70"
-                Cursor="SizeWE"
-                MouseLeftButtonDown="RightResizeGrip_MouseLeftButtonDown"
-                MouseMove="RightResizeGrip_MouseMove"
-                MouseLeftButtonUp="ResizeGrip_MouseLeftButtonUp">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Background" Value="Transparent"/>
-                    <Style.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource TileHoverBrush}"/>
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-        </Border>
+        <!-- Resize grips, one per edge (the corner ones are near the top of the
+             dock's content, under it). Only the edges facing away from where the
+             dock is anchored are shown (MainWindow.UpdateResizeGrips): at Bottom
+             left, the top and right edges; at Top right, the bottom and left; at
+             Middle center, all four (a centered dock grows on both sides at once,
+             so the dragged edge still follows the mouse). Thickness, and the
+             margins that keep them off the menu bar's buttons, are set there too.
+             Transparent at rest; a light bar while the mouse is over one. -->
+        <Border x:Name="TopResizeGrip" Tag="Top" Height="8" VerticalAlignment="Top" Margin="10,0,10,0"
+                Cursor="SizeNS" Style="{StaticResource ResizeGripStyle}"/>
+        <Border x:Name="BottomResizeGrip" Tag="Bottom" Height="8" VerticalAlignment="Bottom" Margin="10,0,10,0"
+                Cursor="SizeNS" Style="{StaticResource ResizeGripStyle}" Visibility="Collapsed"/>
+        <Border x:Name="LeftResizeGrip" Tag="Left" Width="8" HorizontalAlignment="Left" Margin="0,70,0,70"
+                Cursor="SizeWE" Style="{StaticResource ResizeGripStyle}" Visibility="Collapsed"/>
+        <Border x:Name="RightResizeGrip" Tag="Right" Width="8" HorizontalAlignment="Right" Margin="0,70,0,70"
+                Cursor="SizeWE" Style="{StaticResource ResizeGripStyle}"/>
 
         <!-- Power flyout -->
         <Popup x:Name="PowerFlyoutPopup" PlacementTarget="{Binding ElementName=PowerButtonElement}"

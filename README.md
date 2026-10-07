@@ -53,9 +53,10 @@ for you.
   screen), in rows or columns, with the icons aligned left, center or right. It
   slides in from its screen edge (up from behind the taskbar at the bottom),
   fades in, or just appears.
-- **Look:** light, dark or follow Windows; background opacity from solid to
-  fully see-through; frosted glass; your own background picture (GIFs work too);
-  border thin, bold or removed, in the theme color, white or black.
+- **Look:** light, dark or follow Windows; your own background, text, accent,
+  tile and border colors; background opacity from solid to fully see-through;
+  frosted glass; your own background picture (GIFs work too); border thin, bold
+  or removed.
 - **Tiles:** icon size, name size, bold or hidden names and category names,
   optional tiles behind each icon, and a small bar under apps that are open.
 - **Menu bar:** top or bottom, choose which buttons it shows, or hide it.

@@ -193,6 +193,14 @@ namespace StartDock.Views
             {
                 TextColorMode.Black => 1,
                 TextColorMode.White => 2,
+                TextColorMode.Custom => 3,
+                _ => 0,
+            };
+            BackgroundColorCombo.SelectedIndex = current.BackgroundColor == BackgroundColorMode.Custom ? 1 : 0;
+            AccentColorCombo.SelectedIndex = current.AccentColor switch
+            {
+                AccentColorMode.Windows => 1,
+                AccentColorMode.Custom => 2,
                 _ => 0,
             };
 
@@ -247,12 +255,95 @@ namespace StartDock.Views
             {
                 IconBackgroundColorMode.Black => 1,
                 IconBackgroundColorMode.White => 2,
+                IconBackgroundColorMode.Custom => 3,
                 _ => 0,
             };
+
+            // After the combos above have their choices.
+            SetUpColorRow(TextColorCombo, TextColorSwatch, "Text color", current.CustomTextColor, Colors.White);
+            SetUpColorRow(BackgroundColorCombo, BackgroundColorSwatch, "Background color", current.CustomBackgroundColor, Color.FromRgb(0x1F, 0x2A, 0x3A));
+            SetUpColorRow(AccentColorCombo, AccentColorSwatch, "Accent color", current.CustomAccentColor, Color.FromRgb(0x00, 0x78, 0xD4));
+            SetUpColorRow(IconBackgroundColorCombo, IconBackgroundColorSwatch, "Icon tile color", current.CustomIconBackgroundColor, Color.FromRgb(0x00, 0x78, 0xD4));
+            SetUpColorRow(BorderColorCombo, BorderColorSwatch, "Border color", current.CustomBorderColor, Color.FromRgb(0x00, 0x78, 0xD4));
+            _colorsReady = true;
 
             _pendingWindowWidth = current.WindowWidth;
             _pendingWindowHeight = current.WindowHeight;
         }
+
+        // ---- Custom colors
+        //
+        // Each color dropdown ends with "Custom color": picking it opens the color
+        // picker, and a swatch button beside the dropdown shows the color and opens
+        // the picker again. The custom color is kept even while another choice is
+        // picked, so going back to Custom brings it back.
+
+        private readonly Dictionary<ComboBox, (Button Swatch, string Title)> _colorRows = new();
+        private readonly Dictionary<ComboBox, Color> _customColors = new();
+        private bool _colorsReady; // false while the constructor fills the dropdowns in
+
+        private void SetUpColorRow(ComboBox combo, Button swatch, string title, string stored, Color fallback)
+        {
+            _colorRows[combo] = (swatch, title);
+            _customColors[combo] = ColorUtil.Parse(stored, fallback);
+            UpdateColorSwatch(combo);
+        }
+
+        /// <summary>"Custom color" is always a color dropdown's last item.</summary>
+        private static bool IsCustomColor(ComboBox combo) => combo.SelectedIndex == combo.Items.Count - 1;
+
+        private void UpdateColorSwatch(ComboBox combo)
+        {
+            var (swatch, _) = _colorRows[combo];
+            swatch.Background = ColorUtil.Brush(_customColors[combo]);
+            swatch.Visibility = IsCustomColor(combo) ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void ColorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_colorsReady || sender is not ComboBox combo || !_colorRows.ContainsKey(combo))
+                return;
+
+            UpdateColorSwatch(combo);
+            if (!IsCustomColor(combo))
+                return;
+
+            // Just picked "Custom color": open the picker once the dropdown has
+            // closed. Cancel goes back to the previous choice.
+            int previous = e.RemovedItems.Count > 0 ? combo.Items.IndexOf(e.RemovedItems[0]) : 0;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (IsCustomColor(combo) && !PickColor(combo))
+                    combo.SelectedIndex = Math.Max(0, previous);
+            }), System.Windows.Threading.DispatcherPriority.Input);
+        }
+
+        private void ColorSwatch_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var (combo, row) in _colorRows)
+            {
+                if (ReferenceEquals(row.Swatch, sender))
+                {
+                    PickColor(combo);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>Opens the color picker for this dropdown's custom color. True if
+        /// a color was chosen.</summary>
+        private bool PickColor(ComboBox combo)
+        {
+            var dialog = new ColorPickerDialog(_customColors[combo], _colorRows[combo].Title) { Owner = this };
+            if (dialog.ShowDialog() != true)
+                return false;
+            _customColors[combo] = dialog.SelectedColor;
+            UpdateColorSwatch(combo);
+            return true;
+        }
+
+        private string CustomColorHex(ComboBox combo, string fallback) =>
+            _customColors.TryGetValue(combo, out var color) ? ColorUtil.ToHex(color) : fallback;
 
         /// <summary>HideMenuBarCheck's Checked/Unchecked handler — keeps the five
         /// individual button checkboxes visually reflecting that they have nothing to
@@ -328,11 +419,13 @@ namespace StartDock.Views
             BoldBorderCheck.IsEnabled = HideBorderCheck.IsChecked != true;
             if (BorderColorCombo != null)
                 BorderColorCombo.IsEnabled = HideBorderCheck.IsChecked != true;
+            if (BorderColorSwatch != null)
+                BorderColorSwatch.IsEnabled = HideBorderCheck.IsChecked != true;
         }
 
         /// <summary>Shrinks the dock to its smallest allowed size (see
         /// MinDockWidth/MinDockHeight) on the next Save — for anyone who can't just
-        /// drag the dock's own top/right resize grips to do it by hand (working
+        /// drag the dock's own edges to do it by hand (working
         /// remotely from a laptop with a shorter screen, say). Takes effect on
         /// Save/Cancel like every other control here, not immediately, so it's easy
         /// to back out of with Cancel if clicked by mistake.</summary>
@@ -702,12 +795,24 @@ namespace StartDock.Views
                 {
                     1 => IconBackgroundColorMode.Black,
                     2 => IconBackgroundColorMode.White,
+                    3 => IconBackgroundColorMode.Custom,
                     _ => IconBackgroundColorMode.Theme,
                 },
+                CustomIconBackgroundColor = CustomColorHex(IconBackgroundColorCombo, _original.CustomIconBackgroundColor),
+                BackgroundColor = BackgroundColorCombo.SelectedIndex == 1 ? BackgroundColorMode.Custom : BackgroundColorMode.Theme,
+                CustomBackgroundColor = CustomColorHex(BackgroundColorCombo, _original.CustomBackgroundColor),
+                AccentColor = AccentColorCombo.SelectedIndex switch
+                {
+                    1 => AccentColorMode.Windows,
+                    2 => AccentColorMode.Custom,
+                    _ => AccentColorMode.Theme,
+                },
+                CustomAccentColor = CustomColorHex(AccentColorCombo, _original.CustomAccentColor),
                 FrostedBackground = FrostedBackgroundCheck.IsChecked == true,
                 FrostTint = (FrostTintMode)Math.Max(0, FrostTintCombo.SelectedIndex),
                 HideBorder = HideBorderCheck.IsChecked == true,
-                BorderColor = (BorderColorMode)Math.Max(0, BorderColorCombo.SelectedIndex),
+                BorderColor = (BorderColorMode)Math.Max(0, BorderColorCombo.SelectedIndex), // items ordered to match BorderColorMode
+                CustomBorderColor = CustomColorHex(BorderColorCombo, _original.CustomBorderColor),
                 BoldBorder = BoldBorderCheck.IsChecked == true,
                 HideSearchBar = HideSearchBarCheck.IsChecked == true,
                 ShowNewApps = ShowNewAppsCheck.IsChecked == true,
@@ -758,8 +863,10 @@ namespace StartDock.Views
                 {
                     1 => TextColorMode.Black,
                     2 => TextColorMode.White,
+                    3 => TextColorMode.Custom,
                     _ => TextColorMode.Default,
                 },
+                CustomTextColor = CustomColorHex(TextColorCombo, _original.CustomTextColor),
             };
         }
 
@@ -997,6 +1104,9 @@ namespace StartDock.Views
             ["location"] = new[] { "position" },
             ["place"] = new[] { "position" },
             ["recent"] = new[] { "recently" },
+            ["colour"] = new[] { "color" },
+            ["highlight"] = new[] { "accent" },
+            ["hover"] = new[] { "accent" },
         };
 
         private void SettingsSearchBox_TextChanged(object sender, TextChangedEventArgs e)

@@ -4,6 +4,14 @@
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
 
+## 0.9.7
+
+- Custom colors: Text color, Icon tiles and Border color have a new "Custom color" choice next to Black and White. Click the color square beside it to change it.
+- New: Settings → Background → Color gives the dock a background color of your own. Opacity, frosted glass and a background picture still work on top of it.
+- New: Settings → Look → Accent color: the theme's, your Windows accent color, or one of your own. It colors hovering over and pressing tiles, the bar under open apps, the Alt+number badges and the outline of a focused box.
+- The color picker has a palette, your Windows accent color, a box for a hex code like #0078D4, and More colors… for any color at all.
+- Resizing works from every position: drag whichever edges face away from where the dock sits (the top and right at Bottom left, the bottom and left at Top right, and so on). Drag a corner between two of them to change the width and height together. A centered dock grows on both sides at once, so it stays centered. It used to be only the top and right edges, which only suited Bottom left.
+
 ## 0.9.6
 
 - Undo: removing a tile, folder or category shows "Removed … · Undo" at the bottom of the dock for a few seconds. Click Undo (or press Ctrl+Z) to put it all back, custom names and icons included.

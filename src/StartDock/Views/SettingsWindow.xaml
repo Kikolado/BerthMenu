@@ -555,11 +555,29 @@
                                 <TextBlock x:Name="OpacityValueText" Grid.Column="2" Text="100%" Style="{StaticResource ValueText}"/>
                             </Grid>
 
+                            <Grid Style="{StaticResource Row}"
+                                  ToolTip="The dock's background color. Opacity, frosted glass and a picture still apply on top of it.">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Color" Style="{StaticResource RowLabel}"/>
+                                <ComboBox x:Name="BackgroundColorCombo" Grid.Column="1" SelectedIndex="0"
+                                          SelectionChanged="ColorCombo_SelectionChanged">
+                                    <ComboBoxItem Content="Match theme"/>
+                                    <ComboBoxItem Content="Custom color"/>
+                                </ComboBox>
+                                <Button x:Name="BackgroundColorSwatch" Grid.Column="2" Style="{StaticResource SwatchButton}"
+                                        Width="26" Height="26" Margin="6,0,0,0" Visibility="Collapsed"
+                                        Click="ColorSwatch_Click" ToolTip="Change the color"/>
+                            </Grid>
+
                             <CheckBox x:Name="FrostedBackgroundCheck" Content="Frosted glass (blur what's behind)"
                                       ToolTip="Below 100% opacity, shows a soft blur of whatever's behind the dock instead of plain see-through. Works with a picture background too."/>
 
                             <Grid Style="{StaticResource Row}"
-                                  ToolTip="Clear may show square corners on some systems.">
+                                  ToolTip="Frosted glass may show square corners on some systems.">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
                                     <ColumnDefinition Width="*"/>
@@ -615,13 +633,38 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="Text color" Style="{StaticResource RowLabel}"/>
-                                <ComboBox x:Name="TextColorCombo" Grid.Column="1" SelectedIndex="0">
+                                <ComboBox x:Name="TextColorCombo" Grid.Column="1" SelectedIndex="0"
+                                          SelectionChanged="ColorCombo_SelectionChanged">
                                     <ComboBoxItem Content="Default (follows theme)"/>
                                     <ComboBoxItem Content="Black"/>
                                     <ComboBoxItem Content="White"/>
+                                    <ComboBoxItem Content="Custom color"/>
                                 </ComboBox>
+                                <Button x:Name="TextColorSwatch" Grid.Column="2" Style="{StaticResource SwatchButton}"
+                                        Width="26" Height="26" Margin="6,0,0,0" Visibility="Collapsed"
+                                        Click="ColorSwatch_Click" ToolTip="Change the color"/>
+                            </Grid>
+
+                            <Grid Style="{StaticResource Row}"
+                                  ToolTip="The highlight color: hovering over and pressing tiles, the bar under open apps, the Alt+number badges, and the outline of a focused box. Theme icon tiles use it too.">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Accent color" Style="{StaticResource RowLabel}"/>
+                                <ComboBox x:Name="AccentColorCombo" Grid.Column="1" SelectedIndex="0"
+                                          SelectionChanged="ColorCombo_SelectionChanged">
+                                    <ComboBoxItem Content="Match theme"/>
+                                    <ComboBoxItem Content="Windows accent color"/>
+                                    <ComboBoxItem Content="Custom color"/>
+                                </ComboBox>
+                                <Button x:Name="AccentColorSwatch" Grid.Column="2" Style="{StaticResource SwatchButton}"
+                                        Width="26" Height="26" Margin="6,0,0,0" Visibility="Collapsed"
+                                        Click="ColorSwatch_Click" ToolTip="Change the color"/>
                             </Grid>
 
                             <Grid Style="{StaticResource Row}"
@@ -629,13 +672,19 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <CheckBox x:Name="ShowIconBackgroundCheck" Content="Icon tiles" Margin="0"/>
-                                <ComboBox x:Name="IconBackgroundColorCombo" Grid.Column="1" SelectedIndex="0">
+                                <ComboBox x:Name="IconBackgroundColorCombo" Grid.Column="1" SelectedIndex="0"
+                                          SelectionChanged="ColorCombo_SelectionChanged">
                                     <ComboBoxItem Content="Theme (matches hover)"/>
                                     <ComboBoxItem Content="Black"/>
                                     <ComboBoxItem Content="White"/>
+                                    <ComboBoxItem Content="Custom color"/>
                                 </ComboBox>
+                                <Button x:Name="IconBackgroundColorSwatch" Grid.Column="2" Style="{StaticResource SwatchButton}"
+                                        Width="26" Height="26" Margin="6,0,0,0" Visibility="Collapsed"
+                                        Click="ColorSwatch_Click" ToolTip="Change the color"/>
                             </Grid>
 
                             <Grid Style="{StaticResource Row}"
@@ -670,14 +719,20 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="Border color" Style="{StaticResource RowLabel}"/>
                                 <ComboBox x:Name="BorderColorCombo" Grid.Column="1" SelectedIndex="0"
-                                          ToolTip="Match theme: a soft gray, or white/black when Bold. White and Black work at either thickness, and color the menu bar's divider line too.">
+                                          SelectionChanged="ColorCombo_SelectionChanged"
+                                          ToolTip="Match theme: a soft gray, or white/black when Bold. White, Black and a custom color work at either thickness, and color the menu bar's divider line too.">
                                     <ComboBoxItem Content="Match theme"/>
                                     <ComboBoxItem Content="White"/>
                                     <ComboBoxItem Content="Black"/>
+                                    <ComboBoxItem Content="Custom color"/>
                                 </ComboBox>
+                                <Button x:Name="BorderColorSwatch" Grid.Column="2" Style="{StaticResource SwatchButton}"
+                                        Width="26" Height="26" Margin="6,0,0,0" Visibility="Collapsed"
+                                        Click="ColorSwatch_Click" ToolTip="Change the color"/>
                             </Grid>
 
                             <CheckBox x:Name="ShowRunningIndicatorCheck" Content="Show a bar under open apps"
