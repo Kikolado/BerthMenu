@@ -90,7 +90,12 @@
                     ToolTipOpening="TileButton_ToolTipOpening"
                     Tag="{Binding}">
                 <Button.ContextMenu>
-                    <ContextMenu>
+                    <ContextMenu Opened="TileContextMenu_Opened">
+                        <!-- The app's recent files, like the taskbar's right-click list.
+                             Filled in when the menu opens (see TileContextMenu_Opened);
+                             hidden when Windows has none for this app. -->
+                        <MenuItem x:Name="RecentFilesMenu" Header="Recent" Visibility="Collapsed"/>
+                        <Separator x:Name="RecentFilesSeparator" Visibility="Collapsed"/>
                         <MenuItem Header="Pin to StartDock" Click="PinSearchResult_Click" Tag="{Binding}"
                                   Visibility="{Binding CanPin, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="Hide from search" Click="HideFromSearch_Click" Tag="{Binding}"
@@ -332,7 +337,13 @@
          (see BackgroundBorder.Effect's own comment) and TopResizeGrip/
          RightResizeGrip needing to sit mostly over the card's own edge now rather
          than in the margin outside it (see their own comments below). -->
-    <Grid>
+    <!-- RootGrid: everything the dock draws. SlideTransform moves it inside the
+         window for Settings → Layout → Animation → Slide, so it comes in from the
+         screen edge without the window itself moving (see BeginAppearAnimation). -->
+    <Grid x:Name="RootGrid">
+        <Grid.RenderTransform>
+            <TranslateTransform x:Name="SlideTransform"/>
+        </Grid.RenderTransform>
         <!-- No outline of its own any more — see OutlineBorder below, which draws
              it instead so Background opacity doesn't fade it away. -->
         <Border x:Name="BackgroundBorder"
@@ -427,6 +438,13 @@
                             Click="FolderBack_Click"
                             ToolTip="Back"/>
 
+                    <!-- Browsing a pinned folder from disk (see OpenBrowse): its name
+                         and where you are inside it, instead of the editable name. -->
+                    <TextBlock x:Name="BrowseTitleText" Grid.Column="1"
+                               Margin="8,0,0,0" FontSize="14" VerticalAlignment="Center"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               TextTrimming="CharacterEllipsis" Visibility="Collapsed"/>
+
                     <TextBox x:Name="FolderNameBox" Grid.Column="1"
                              Padding="10,8"
                              FontSize="14"
@@ -445,12 +463,25 @@
                         </TextBox.Resources>
                     </TextBox>
 
-                    <Button Grid.Column="2"
-                            Style="{StaticResource BottomBarIconButton}"
-                            Content="&#xE738;" FontSize="16"
-                            Margin="8,0,0,0"
-                            Click="UngroupFolder_Click"
-                            ToolTip="Ungroup this folder (moves its apps back to the main grid)"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <Button x:Name="UngroupFolderButton"
+                                Style="{StaticResource BottomBarIconButton}"
+                                Content="&#xE738;" FontSize="16"
+                                Margin="8,0,0,0"
+                                Click="UngroupFolder_Click"
+                                ToolTip="Ungroup this folder (moves its apps back to the main grid)"/>
+                        <Button x:Name="BrowseSortButton"
+                                Style="{StaticResource BottomBarIconButton}"
+                                Content="&#xE8CB;" FontSize="16"
+                                Margin="8,0,0,0" Visibility="Collapsed"
+                                Click="BrowseSort_Click"/>
+                        <Button x:Name="BrowseOpenButton"
+                                Style="{StaticResource BottomBarIconButton}"
+                                Content="&#xE838;" FontSize="16"
+                                Margin="4,0,0,0" Visibility="Collapsed"
+                                Click="BrowseOpenInExplorer_Click"
+                                ToolTip="Open in File Explorer"/>
+                    </StackPanel>
                 </Grid>
 
                 <!-- Categories view: the dock's default top-level content — a
@@ -786,6 +817,28 @@
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            VerticalAlignment="Center" HorizontalAlignment="Center"
                            Visibility="Collapsed"/>
+
+                <!-- "Removed … · Undo", for a few seconds after removing a tile, folder
+                     or category (see MainWindow.xaml.cs ShowUndo). Sits over the
+                     bottom of the icons; its row follows the icon grid's (see
+                     ApplyMenuBarPosition). -->
+                <Border x:Name="UndoBar" Grid.Row="1"
+                        VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                        Margin="16,0,16,12" Padding="14,4,4,4" CornerRadius="6"
+                        Background="{DynamicResource DockBackgroundBrush}"
+                        BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                        Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="UndoText" VerticalAlignment="Center" MaxWidth="240"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        <Button Content="Undo" Margin="12,0,0,0" Padding="12,3" VerticalAlignment="Center"
+                                Click="Undo_Click" ToolTip="Ctrl+Z"/>
+                        <Button Style="{StaticResource BottomBarIconButton}" Width="28" Height="28"
+                                Content="&#xE711;" FontSize="10" Margin="4,0,0,0"
+                                Click="UndoDismiss_Click" ToolTip="Dismiss"/>
+                    </StackPanel>
+                </Border>
 
                 <Border x:Name="DividerBorder" Grid.Row="2" Height="1" Background="{DynamicResource DividerBrush}" Margin="16,4,16,4"
                         Visibility="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=DividerVisibility}"/>

@@ -19,6 +19,7 @@
 - Right-click an empty part of the dock for "Add App or Folder".
 - The Add window can also pin any file or shortcut, a folder, or a website.
 - Right-click a search result → Pin to StartDock.
+- Click a pinned folder to look inside it without leaving the dock. Shift+click opens it in File Explorer.
 
 ## Organizing
 
@@ -33,5 +34,10 @@
 - Right-click → Change icon... takes any picture or .ico file. GIFs work!
 - Right-click → Refresh icon fixes a blank icon, or puts the app's own icon back after a custom one.
 - Select a tile with the arrow keys: F2 renames it and Delete removes it.
+- Removed something by mistake? Click Undo at the bottom of the dock, or press Ctrl+Z.
+- Right-click an app to see its recent files.
 - Turn on Settings → Startup → "Pin to StartDock" in File Explorer to pin files and folders from their right-click menu.
 
+## Settings
+
+- Can't find a setting? Type in the search box at the top of Settings, or press Ctrl+F there.

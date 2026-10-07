@@ -4,6 +4,18 @@
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
 
+## 0.9.6
+
+- Undo: removing a tile, folder or category shows "Removed … · Undo" at the bottom of the dock for a few seconds. Click Undo (or press Ctrl+Z) to put it all back, custom names and icons included.
+- Recent files on right-click: right-click an app (Notepad, Paint, Word, VS Code and others) to see its recent files under Recent, like the taskbar's list.
+- Pinned folders open inside the dock: click a pinned folder like Downloads to see what's in it, newest first or by name. Click a folder inside it to go in, Back or Backspace to go up, and the folder button to open it in File Explorer. Shift+click a pinned folder to go straight to File Explorer, or turn this off in Settings → Layout.
+- Smoother opening: the dock now appears already moving instead of sitting still for a moment before it slides in, its slide eases out like the Windows Start menu's, and the refreshing it does when it opens (recent sections, running apps, the app list) waits until the animation has played.
+- The slide now comes in from the screen edge the dock sits against: up from behind the taskbar at the bottom (Bottom left used to just appear), down from the top, and in from the side for Middle left and Middle right. It slides within the dock's own space, so it no longer shows on a monitor next to it, and it no longer stutters. Middle center rises a short way, or fades if its monitor has no room below it.
+- New: Settings → Layout → Animation chooses Slide, Fade or None. A change takes effect as soon as you save, closing included.
+- Fixed: with Frosted glass on, the fade showed a light gray box while fading in and out, and the thin outline Windows draws around the dock showed up before the rest of it.
+- Fixed: Settings and other StartDock windows flashed white for a moment as they opened.
+- Search settings: type in the box at the top of Settings (or press Ctrl+F) to find a setting. Matching settings light up and the rest fade, so "border" or "blur" takes you right to them.
+
 ## 0.9.5.2
 
 - Fixed: with Border → Remove, Windows still drew a soft shadow around the dock. It's gone now (unless Frosted glass is on, which needs it for rounded corners), so a see-through dock really is just your icons.

@@ -327,10 +327,35 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="10,6,18,6">
-                        <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
-                    </Border>
+                    <!-- A menu item can also open a submenu (a tile's Recent list):
+                         the arrow and PART_Popup only come into play then. -->
+                    <Grid>
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="10,6,18,6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="SubmenuArrow" Grid.Column="1" Text="&#xE76C;"
+                                           FontFamily="{StaticResource IconFont}" FontSize="10"
+                                           Margin="16,0,-8,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="4" VerticalOffset="-5"
+                               IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                               AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                            <Border Background="{DynamicResource DockBackgroundBrush}"
+                                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                                    CornerRadius="6" Padding="4" MinWidth="170" MaxWidth="420" SnapsToDevicePixels="True">
+                                <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                            </Border>
+                        </Popup>
+                    </Grid>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="Role" Value="SubmenuHeader">
+                            <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/>
+                        </Trigger>
                         <Trigger Property="IsHighlighted" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TileHoverBrush}"/>
                         </Trigger>

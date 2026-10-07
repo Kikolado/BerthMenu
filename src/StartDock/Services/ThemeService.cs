@@ -39,6 +39,59 @@ namespace StartDock.Services
                     // Older Windows without dark title bars — the default one is fine.
                 }
             };
+            HideUntilDrawn(window);
+        }
+
+        /// <summary>Keeps a dialog off the screen until WPF has drawn it once.
+        /// Otherwise Windows shows (and fades in) a blank white window for a moment
+        /// before the content appears — a white flash, worst on the dark theme.</summary>
+        private static void HideUntilDrawn(Window window)
+        {
+            IntPtr hwnd = IntPtr.Zero;
+            bool cloaked = false;
+
+            void SetCloak(bool on)
+            {
+                if (hwnd == IntPtr.Zero || cloaked == on)
+                    return;
+                try
+                {
+                    int value = on ? 1 : 0;
+                    NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmWindowAttribute.DWMWA_CLOAK, ref value, sizeof(int));
+                    cloaked = on;
+                }
+                catch
+                {
+                    // Not supported — the window just shows the usual way.
+                }
+            }
+
+            window.SourceInitialized += (_, _) =>
+            {
+                hwnd = new WindowInteropHelper(window).Handle;
+                SetCloak(true);
+                // Never leave a window hidden if its first frame is slow to come.
+                var safety = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                safety.Tick += (_, _) =>
+                {
+                    safety.Stop();
+                    SetCloak(false);
+                };
+                safety.Start();
+            };
+            // ContentRendered comes as WPF hands its first frame over, a moment
+            // before it's on screen — shown right then, the window was still white
+            // for a frame or two. A short wait covers that.
+            window.ContentRendered += (_, _) =>
+            {
+                var wait = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+                wait.Tick += (_, _) =>
+                {
+                    wait.Stop();
+                    SetCloak(false);
+                };
+                wait.Start();
+            };
         }
 
         /// <summary>Whether the theme currently loaded (Theme.xaml or Theme.Dark.xaml)

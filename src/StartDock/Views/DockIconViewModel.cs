@@ -30,6 +30,10 @@ namespace StartDock.Views
         /// result — so app-only actions (Run as administrator, Uninstall) don't apply.</summary>
         public bool IsFile { get; init; }
 
+        /// <summary>A folder shown while browsing a pinned folder inside the dock
+        /// (see MainWindow.OpenBrowse): clicking it opens it there too.</summary>
+        public bool IsBrowseFolder { get; init; }
+
         /// <summary>Something that can be launched as a program (as opposed to a
         /// folder tile, a document, a Settings page, or a recent file) — what the
         /// right-click Run as administrator / Uninstall items apply to.</summary>

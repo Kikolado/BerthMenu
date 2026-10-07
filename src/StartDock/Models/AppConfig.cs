@@ -170,14 +170,20 @@ namespace StartDock.Models
     /// see ConfigService), so reordering would silently reinterpret whatever
     /// value an existing install already has saved as a different position the
     /// next time it loads.</summary>
+    /// <summary>See AppConfig.DockAnimation. Append-only: stored as a number.</summary>
+    public enum DockAnimation
+    {
+        Slide,
+        Fade,
+        None,
+    }
+
     public enum DockPosition
     {
         /// <summary>Anchored to the bottom-left of the work area — StartDock's
-        /// original placement (the default is now BottomCenter). Appears/disappears instantly, no animation
-        /// (see MainWindow's ShowDock/HideDock) — the other positions below
-        /// were added later specifically to get an animated appearance; this one is
-        /// left exactly as it always behaved rather than changing existing users'
-        /// experience along with them.</summary>
+        /// original placement (the default is now BottomCenter). Slides up from the
+        /// taskbar edge like the other bottom positions (from 0.9.6; it used to
+        /// appear instantly).</summary>
         BottomLeft,
 
         /// <summary>Bottom-center of the work area, sliding up from the taskbar edge
@@ -187,8 +193,8 @@ namespace StartDock.Models
         /// <summary>Top-center of the work area, sliding down into place.</summary>
         TopCenter,
 
-        /// <summary>Dead center of the work area, fading in/out rather than sliding
-        /// (there's no single edge to slide in from at dead-center). Shown in
+        /// <summary>Dead center of the work area. With Slide it rises a short way
+        /// (there's no edge to slide in from), or fades without room. Shown in
         /// Settings as "Middle center" (see SettingsWindow.xaml's PositionCombo,
         /// grouped alongside Middle left/Middle right) — only that display label
         /// changed, not this member's name, since nothing about the rename requires
@@ -212,14 +218,11 @@ namespace StartDock.Models
         TopLeft,
 
         /// <summary>Vertically centered against the left edge of the work area.
-        /// Unlike every other non-Center position, there's no top/bottom edge to
-        /// slide in from, so this slides in horizontally from off-screen to the left
-        /// instead (see MainWindow's SlideInHorizontal/SlideOutHorizontal).</summary>
+        /// With Slide it comes in from the left edge (see MainWindow.ChooseAnimation).</summary>
         MiddleLeft,
 
         /// <summary>Vertically centered against the right edge of the work area — the
-        /// mirror image of MiddleLeft, sliding in horizontally from off-screen to the
-        /// right.</summary>
+        /// mirror image of MiddleLeft, sliding in from the right edge.</summary>
         MiddleRight,
     }
 
@@ -359,6 +362,21 @@ namespace StartDock.Models
         /// <summary>A small bar under pinned apps that are open right now.
         /// See Services/RunningApps.</summary>
         public bool ShowRunningIndicator { get; set; } = false;
+
+        /// <summary>Clicking a pinned folder (from disk, not a folder of tiles) shows
+        /// its contents inside the dock, with Open in File Explorer one click away.
+        /// Off: it opens in File Explorer. Shift+click always opens File Explorer.</summary>
+        public bool OpenFoldersInDock { get; set; } = true;
+
+        /// <summary>How the dock appears and goes away: Slide (in from the screen edge it
+        /// sits against: up from behind the taskbar at the bottom), Fade, or None. Settings →
+        /// Layout → Animation.</summary>
+        public DockAnimation DockAnimation { get; set; } = DockAnimation.Slide;
+
+        /// <summary>A folder shown inside the dock lists folders then files by name
+        /// (true), or everything newest first (false). Changed with the sort button
+        /// in the folder's header.</summary>
+        public bool FolderBrowseByName { get; set; } = false;
 
         /// <summary>Things hidden from search with right-click → Hide from search
         /// (installed apps, Windows tools, files). Settings → Search → Manage brings

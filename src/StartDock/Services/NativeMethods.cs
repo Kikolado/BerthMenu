@@ -183,6 +183,13 @@ namespace StartDock.Services
             // Color of the thin border Windows 11 draws around the window's edge
             // (COLORREF; 0xFFFFFFFF = system default). See MainWindow.SetSystemBorderColor.
             DWMWA_BORDER_COLOR = 34,
+
+            // TRUE keeps a window off the screen while it's otherwise "shown" — used
+            // to hide dialogs until their first frame is drawn (ThemeService).
+            DWMWA_CLOAK = 13,
+
+            // TRUE turns off Windows' own show/hide animations for a window.
+            DWMWA_TRANSITIONS_FORCEDISABLED = 3,
         }
 
         public enum DwmWindowCornerPreference
@@ -275,6 +282,7 @@ namespace StartDock.Services
 
         [DllImport("user32.dll")]
         public static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
+
 
         // ---- Window/monitor geometry (positioning the overlay + dock) ----
 

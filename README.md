@@ -50,7 +50,9 @@ for you.
 </table>
 
 - **Where it opens:** any of 9 positions (corners, edges or the middle of the
-  screen), in rows or columns, with the icons aligned left, center or right.
+  screen), in rows or columns, with the icons aligned left, center or right. It
+  slides in from its screen edge (up from behind the taskbar at the bottom),
+  fades in, or just appears.
 - **Look:** light, dark or follow Windows; background opacity from solid to
   fully see-through; frosted glass; your own background picture (GIFs work too);
   border thin, bold or removed, in the theme color, white or black.
@@ -72,6 +74,9 @@ for you.
 - Optional **Pin to StartDock** in File Explorer's right-click menu.
 - Group tiles into **categories** you can rename, reorder and fold away, and
   drop one tile on another to make a **folder**.
+- Click a pinned folder (like Downloads) to look inside it right in the dock.
+- Right-click an app to see its **recent files**, like on the taskbar.
+- Removed something by mistake? **Undo** puts it back.
 - Change any tile's name and icon, or open **Properties** to set arguments, a
   "Start in" folder, "Always run as administrator" and search keywords.
 
@@ -101,7 +106,8 @@ for you.
 - **Export…** and **Import…** move your whole setup, icons included, to another
   PC. **Reset…** starts over like a new install.
 
-Not sure where something is? Open **Tips** from the tray icon or the bottom of
+Settings has a search box, so you can type "border" or "blur" instead of
+looking through every card. Not sure where something is? Open **Tips** from the tray icon or the bottom of
 Settings. **What's new** lists the changes in each version.
 
 ## How it works
@@ -188,6 +194,7 @@ src/StartDock/
     FileSearchService, Calculator, RunCommand, WindowsSettingsCatalog   Search
     RecentFilesService, AppUsageService, RunningApps    Recent sections, most used, open apps
     ExplorerMenuService          "Pin to StartDock" in File Explorer
+    JumpListService              An app's recent files, for its right-click menu
     Updater, Changelog           Updates, What's new, Tips, Report a problem
     ...                          Power, theme, tray, autostart, monitors, Win32 calls
   Views/

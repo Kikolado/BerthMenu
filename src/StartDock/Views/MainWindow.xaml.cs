@@ -127,6 +127,7 @@ namespace StartDock.Views
             // moving to a monitor with a different scale factor (the region has to be
             // specified in that monitor's own device pixels).
             SourceInitialized += (_, _) => ApplyWindowRegion();
+            SourceInitialized += (_, _) => DisableWindowsAnimations();
             SizeChanged += (_, _) => ApplyWindowRegion();
             DpiChanged += (_, _) => ApplyWindowRegion();
         }
@@ -1281,6 +1282,10 @@ namespace StartDock.Views
                 Grid.SetColumn(MenuBarRow, barColumn);
             }
 
+            // The undo bar floats over the bottom of the icon grid, wherever that is.
+            Grid.SetRow(UndoBar, Grid.GetRow(FlatScrollViewer));
+            Grid.SetColumn(UndoBar, Grid.GetColumn(FlatScrollViewer));
+
             _menuBarVertical = vertical;
             ApplyDividerShape();
             LayoutMenuBarButtons(vertical, placement == MenuBarPlacement.Right);
@@ -1516,6 +1521,21 @@ namespace StartDock.Views
             _ => ThemeService.ResolveIsDark(_config.Theme),
         };
 
+        // True while the dock fades or slides inside its own window: the parts
+        // Windows draws around it (frosted glass, its 1px border and its shadow)
+        // don't fade or move with it, so they're switched off until it's in place
+        // (see BeginAppearAnimation).
+        private bool _frameSuppressed;
+
+        private void SetFrameSuppressed(bool suppressed)
+        {
+            if (_frameSuppressed == suppressed)
+                return;
+            _frameSuppressed = suppressed;
+            ApplyFrostedBackground();
+            ApplySystemBorderColor();
+        }
+
         private void ApplyFrostedBackground()
         {
             try
@@ -1527,7 +1547,8 @@ namespace StartDock.Views
                 // that shadow was the last thing outlining a see-through dock, so
                 // skip it then: the card is rounded by ApplyWindowRegion anyway.
                 // (Frosting still needs it so the blur gets rounded corners.)
-                bool noSystemFrame = _config.HideBorder && !_config.FrostedBackground;
+                // Also skipped while the dock animates (see SetFrameSuppressed).
+                bool noSystemFrame = (_config.HideBorder && !_config.FrostedBackground) || _frameSuppressed;
                 int cornerPreference = (int)(noSystemFrame
                     ? NativeMethods.DwmWindowCornerPreference.DWMWCP_DONOTROUND
                     : NativeMethods.DwmWindowCornerPreference.DWMWCP_ROUND);
@@ -1556,9 +1577,10 @@ namespace StartDock.Views
                 // asks for DWMWCP_ROUND above and the card fills the whole window,
                 // so it may round properly now — but that's untested, hence this
                 // being an opt-in choice rather than the default.
-                bool clearBlur = _config.FrostedBackground && _config.FrostTint == FrostTintMode.Clear;
+                bool frosted = _config.FrostedBackground && !_frameSuppressed;
+                bool clearBlur = frosted && _config.FrostTint == FrostTintMode.Clear;
 
-                int backdropType = (int)(_config.FrostedBackground && !clearBlur
+                int backdropType = (int)(frosted && !clearBlur
                     ? NativeMethods.DwmSystemBackdropType.DWMSBT_TRANSIENTWINDOW
                     : NativeMethods.DwmSystemBackdropType.DWMSBT_NONE);
                 int backdropResult = NativeMethods.DwmSetWindowAttribute(
@@ -1579,7 +1601,7 @@ namespace StartDock.Views
                 }
 
                 // Pre-Windows-11 fallback: the legacy API is all there is.
-                ApplyLegacyBlurBehind(hwnd, !_config.FrostedBackground
+                ApplyLegacyBlurBehind(hwnd, !frosted
                     ? NativeMethods.AccentState.ACCENT_DISABLED
                     : clearBlur
                         ? NativeMethods.AccentState.ACCENT_ENABLE_BLURBEHIND
@@ -1862,14 +1884,28 @@ namespace StartDock.Views
         /// Ignored on Windows 10, which has no such attribute.</summary>
         private void SetSystemBorderColor(Color? color, bool hide = false)
         {
+            _systemBorderColor = color;
+            _systemBorderHidden = hide;
+            ApplySystemBorderColor();
+        }
+
+        private Color? _systemBorderColor;
+        private bool _systemBorderHidden;
+
+        /// <summary>Applies SetSystemBorderColor's choice, or no border at all while
+        /// the dock animates (see SetFrameSuppressed): Windows draws it at full
+        /// strength, so it showed as an outline before a fade-in and after a
+        /// fade-out.</summary>
+        private void ApplySystemBorderColor()
+        {
             try
             {
                 IntPtr hwnd = new WindowInteropHelper(this).EnsureHandle();
                 // COLORREF is 0x00BBGGRR; DWMWA_COLOR_DEFAULT is 0xFFFFFFFF,
                 // DWMWA_COLOR_NONE (no border at all) is 0xFFFFFFFE.
-                int colorRef = hide
+                int colorRef = _systemBorderHidden || _frameSuppressed
                     ? unchecked((int)0xFFFFFFFE)
-                    : color is Color c
+                    : _systemBorderColor is Color c
                         ? (c.B << 16) | (c.G << 8) | c.R
                         : unchecked((int)0xFFFFFFFF);
                 NativeMethods.DwmSetWindowAttribute(
@@ -2158,6 +2194,13 @@ namespace StartDock.Views
             // then the dock jumped back to slide in — a visible flicker.
             BeginAppearAnimation();
 
+            // Showing the dock costs a moment of drawing before it can move (the
+            // videos showed it sitting still for ~5 frames before sliding). So it's
+            // shown cloaked — Windows keeps it off the screen while it draws — and
+            // appears, already moving, once its first frame is ready.
+            int showVersion = ++_showVersion;
+            bool cloaked = SetDockCloak(true);
+
             Visibility = Visibility.Visible;
             Show();
             Activate();
@@ -2173,14 +2216,123 @@ namespace StartDock.Views
             // start typing" land in the search box inconsistently rather than every time.
             UpdateSearchBarVisibility();
 
-            // After the dock is up, so neither delays it appearing.
-            SnapWidthToGridSoon();
-            RefreshUsageAsync();
-            UpdateAutoSections();
-            _ = AutoRefreshAppsAsync();
-            RefreshRunningIndicators();
-            if (_config.SearchRun)
-                RunCommand.WarmUp();
+            if (cloaked)
+            {
+                RunWhenDrawn(showVersion, () =>
+                {
+                    // Animation first, so its first visible frame is already moving.
+                    StartAppearAnimation();
+                    SetDockCloak(false);
+                    StartAfterShowWork();
+                });
+            }
+            else
+            {
+                StartAppearAnimation();
+                StartAfterShowWork();
+            }
+        }
+
+        /// <summary>Turns off Windows' own show/hide animations for the dock, so they
+        /// don't play on top of (or delay) StartDock's slide and fade.</summary>
+        private void DisableWindowsAnimations()
+        {
+            try
+            {
+                IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                int disabled = 1;
+                NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmWindowAttribute.DWMWA_TRANSITIONS_FORCEDISABLED, ref disabled, sizeof(int));
+            }
+            catch
+            {
+                // Purely cosmetic.
+            }
+        }
+
+        // Bumped by every ShowDock and HideDock, so a show still waiting for its
+        // first frame (RunWhenDrawn) knows when it has been overtaken.
+        private int _showVersion;
+        private bool _dockCloaked;
+
+        /// <summary>DWM cloaking: the window is shown and drawn as usual, just not
+        /// put on the screen. False if Windows doesn't support it (the dock then
+        /// simply shows the old way).</summary>
+        private bool SetDockCloak(bool cloak)
+        {
+            try
+            {
+                IntPtr hwnd = new WindowInteropHelper(this).EnsureHandle();
+                int value = cloak ? 1 : 0;
+                if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmWindowAttribute.DWMWA_CLOAK, ref value, sizeof(int)) != 0)
+                    return false;
+                _dockCloaked = cloak;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Runs <paramref name="action"/> once the window has drawn a frame
+        /// (two frames after showing, then once the thread is free) — or after
+        /// 250 ms at the latest, so the dock can never stay hidden.</summary>
+        private void RunWhenDrawn(int showVersion, Action action)
+        {
+            int frames = 0;
+            bool done = false;
+            EventHandler? onRendering = null;
+            var safety = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+
+            void Finish()
+            {
+                if (done)
+                    return;
+                done = true;
+                CompositionTarget.Rendering -= onRendering;
+                safety.Stop();
+                if (showVersion == _showVersion)
+                    action();
+            }
+
+            onRendering = (_, _) =>
+            {
+                if (++frames == 2)
+                    Dispatcher.BeginInvoke(new Action(Finish), DispatcherPriority.Background);
+            };
+            CompositionTarget.Rendering += onRendering;
+            safety.Tick += (_, _) => Finish();
+            safety.Start();
+        }
+
+        /// <summary>The refreshing a fresh open does waits until the appear animation
+        /// has played: done right away, it competed with the animation.</summary>
+        private void StartAfterShowWork()
+        {
+            _afterShowTimer ??= CreateAfterShowTimer();
+            _afterShowTimer.Stop();
+            _afterShowTimer.Start();
+        }
+
+        private DispatcherTimer? _afterShowTimer;
+
+        private DispatcherTimer CreateAfterShowTimer()
+        {
+            var timer = new DispatcherTimer { Interval = AnimationDuration.TimeSpan + TimeSpan.FromMilliseconds(60) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                if (Visibility != Visibility.Visible)
+                    return;
+                SnapWidthToGridSoon();
+                RefreshUsageAsync();
+                UpdateAutoSections();
+                _ = AutoRefreshAppsAsync();
+                RefreshRunningIndicators();
+                if (_config.SearchRun)
+                    RunCommand.WarmUp();
+            };
+            return timer;
         }
 
         // ---------------------------------------------------------------
@@ -2323,28 +2475,28 @@ namespace StartDock.Views
             if (_dialogOpen) return;
             ShowShortcutBadges(false);
             _fullscreenTaskbar.Restore(); // no-op unless ShowDock actually raised it
+            _showVersion++;
+
+            // Closed again before it even appeared: just hide it.
+            if (_dockCloaked)
+            {
+                _pendingAppear = null;
+                Visibility = Visibility.Hidden;
+                SetDockCloak(false);
+                return;
+            }
             BeginDisappearAnimation();
         }
 
-        /// <summary>Sets Left/Top for the dock's configured DockPosition — everything
-        /// but BottomLeft (the original, unanimated default — see DockPosition) also
-        /// gets a quick appear/disappear animation, driven from ShowDock/HideDock via
-        /// BeginAppearAnimation/BeginDisappearAnimation rather than here: this method
-        /// only ever sets the *resting* position, since the animations below need to
-        /// know that resting value before they can compute where to animate from.</summary>
+        /// <summary>Sets Left/Top for the dock's configured DockPosition: its
+        /// resting place. The open/close animations (BeginAppearAnimation/
+        /// BeginDisappearAnimation) work from there.</summary>
         private void PositionDock()
         {
-            // Clear any leftover Top/Left animation hold first. WPF animations default
-            // to FillBehavior.HoldEnd, so even a SlideIn/SlideInHorizontal that finished
-            // playing minutes ago keeps its clock attached and keeps overriding
-            // GetValue(Top/LeftProperty) with its own held value — a later plain
-            // assignment below would silently have no visible effect at all, still
-            // showing wherever that old clock left it. (SlideOut/SlideOutHorizontal
-            // already clear their own clock on completion; SlideIn/SlideInHorizontal
-            // now do too, right below — this is belt-and-suspenders for the case where
-            // Save's own reposition, or a fresh ShowDock, runs while an old clock is
-            // still attached, possibly mid-animation.) Same reasoning BeginAppearAnimation
-            // already applies to Opacity for the exact same reason.
+            // Clear any leftover Top/Left animation hold first. WPF animations
+            // default to FillBehavior.HoldEnd, so a held clock would keep
+            // overriding the plain assignments below (Middle center's rise clears
+            // its own on completion; this covers one still running).
             BeginAnimation(TopProperty, null);
             BeginAnimation(LeftProperty, null);
 
@@ -2434,190 +2586,303 @@ namespace StartDock.Views
         /// the case it exists for.</summary>
         private Rect GetTargetWorkArea() => MonitorHelper.GetWorkAreaAtCursor();
 
-        // How far (in DIPs) BottomCenter/TopCenter slide from, and how long every
-        // appear/disappear animation below takes. "Quick" per the Windows 11 Start
-        // Menu's own feel — long enough to read as motion, short enough to never feel
-        // like it's in the way of actually using the dock.
-        private const double SlideDistance = 40;
+        // Slide → Middle center: the whole window rises this far (DIPs), as long as
+        // its own monitor has the room; less than MinRiseDistance and it fades.
+        private const double RiseDistance = 40;
+        private const double MinRiseDistance = 16;
+        // Slide → every other position: how far the dock slides in from its edge.
+        private const double EdgeSlideDistance = 120;
         private static readonly Duration AnimationDuration = new(TimeSpan.FromMilliseconds(160));
+        private static readonly Duration EdgeSlideDuration = new(TimeSpan.FromMilliseconds(180));
 
-        /// <summary>Plays this dock's configured appear animation — called from
-        /// ShowDock right after Visibility/Show/Activate, once Left/Top already hold
-        /// their resting position (see PositionDock). BottomLeft, the original
-        /// default position, deliberately keeps its plain instant appear rather than
-        /// gaining an animation along with the newer positions — see DockPosition.</summary>
-        private void BeginAppearAnimation()
+        // Where a slide comes from.
+        private enum SlideFrom { Bottom, Top, Left, Right, Below }
+
+        // How the dock opens and closes right now — set by ChooseAnimation (on each
+        // open, and when Settings is saved), so a close always matches the open
+        // before it, or the setting just saved.
+        private DockAnimation _activeAnimation = DockAnimation.Slide;
+        private SlideFrom _slideFrom;
+        private double _slideDistance;
+        private double _riseRestingTop;
+
+        /// <summary>Picks this open's animation from Settings → Layout → Animation
+        /// and the dock's position. Needs Left/Top at their resting place (see
+        /// PositionDock).
+        ///
+        ///  - Slide: the dock comes in from the screen edge it sits against: up
+        ///    from the taskbar at the bottom, down from the top, in from the left
+        ///    or right side. It slides inside its own window, which stays put, so
+        ///    it never shows on another monitor and the window never leaves the
+        ///    screen (a layered WPF window partly off the screen is redrawn on
+        ///    every frame, which made the 0.9.6 test builds that moved the window
+        ///    from below the screen stutter). Middle center has no edge, so its
+        ///    whole window rises a short way instead, if its monitor has room.
+        ///  - Fade: fades in where it rests.
+        ///  - None: just appears.</summary>
+        private void ChooseAnimation()
         {
-            // Always clear any leftover Opacity animation/value first — if the user
-            // switched away from Center since the dock was last hidden, a Center
-            // disappear's fade-to-0 (see BeginDisappearAnimation) could otherwise
-            // still be holding Opacity near 0 for a position that never touches
-            // Opacity itself (BottomCenter/TopCenter/BottomLeft), leaving the dock
-            // invisible even though Visibility says it's showing.
-            BeginAnimation(OpacityProperty, null);
-            Opacity = 1;
+            _activeAnimation = _config.DockAnimation;
+            if (_activeAnimation != DockAnimation.Slide)
+                return;
 
             switch (_config.Position)
             {
+                case DockPosition.BottomLeft:
                 case DockPosition.BottomCenter:
                 case DockPosition.BottomRight:
-                    SlideIn(fromOffset: SlideDistance); // slides up into place from below
+                    _slideFrom = SlideFrom.Bottom;
+                    _slideDistance = Math.Min(EdgeSlideDistance, Height);
                     break;
 
+                case DockPosition.TopLeft:
                 case DockPosition.TopCenter:
                 case DockPosition.TopRight:
-                case DockPosition.TopLeft:
-                    SlideIn(fromOffset: -SlideDistance); // slides down into place from above
-                    break;
-
-                case DockPosition.Center:
-                    Opacity = 0;
-                    BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, AnimationDuration));
+                    _slideFrom = SlideFrom.Top;
+                    _slideDistance = Math.Min(EdgeSlideDistance, Height);
                     break;
 
                 case DockPosition.MiddleLeft:
-                    SlideInHorizontal(fromOffset: -SlideDistance); // slides in from off-screen to the left
+                    _slideFrom = SlideFrom.Left;
+                    _slideDistance = Math.Min(EdgeSlideDistance, Width);
                     break;
 
                 case DockPosition.MiddleRight:
-                    SlideInHorizontal(fromOffset: SlideDistance); // slides in from off-screen to the right
+                    _slideFrom = SlideFrom.Right;
+                    _slideDistance = Math.Min(EdgeSlideDistance, Width);
                     break;
 
-                default: // BottomLeft — instant, no animation at all
+                default: // Center
+                    _slideFrom = SlideFrom.Below;
+                    _slideDistance = Math.Min(RiseDistance, RoomBelowOnMonitor());
+                    if (_slideDistance < MinRiseDistance)
+                        _activeAnimation = DockAnimation.Fade; // no room on this monitor
                     break;
             }
         }
 
-        /// <summary>The mirror image of BeginAppearAnimation, called from HideDock
-        /// instead of setting Visibility=Hidden directly — every branch still ends up
-        /// setting Visibility=Hidden itself, just after its own animation finishes
-        /// rather than immediately.</summary>
+        /// <summary>Stops any open or close animation and puts the dock back to
+        /// fully visible, unmoved (Top is left to PositionDock).</summary>
+        private void ResetAnimations()
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            RootGrid.BeginAnimation(OpacityProperty, null);
+            RootGrid.Opacity = 1;
+            SlideTransform.BeginAnimation(TranslateTransform.XProperty, null);
+            SlideTransform.BeginAnimation(TranslateTransform.YProperty, null);
+            SlideTransform.X = 0;
+            SlideTransform.Y = 0;
+            _pendingAppear = null;
+            _animationToken++; // so a stopped animation's Completed does nothing
+        }
+
+        // Bumped by every animation this dock starts (and ResetAnimations): an
+        // animation's Completed handler only acts if it's still the latest one, so
+        // one that was replaced or stopped can't hide or move the dock later.
+        private int _animationToken;
+
+        /// <summary>Wraps a Completed handler so it only runs if no other animation
+        /// started (and nothing reset them) since.</summary>
+        private EventHandler Latest(Action action)
+        {
+            int token = ++_animationToken;
+            return (_, _) =>
+            {
+                if (token == _animationToken)
+                    action();
+            };
+        }
+
+        /// <summary>Sets up this dock's appear animation — called from ShowDock
+        /// before the window shows, once Left/Top hold their resting position (see
+        /// PositionDock). Only the starting point is set here; StartAppearAnimation
+        /// starts it once the window's first frame is drawn.</summary>
+        private void BeginAppearAnimation()
+        {
+            ResetAnimations();
+            ChooseAnimation();
+
+            switch (_activeAnimation)
+            {
+                case DockAnimation.Slide when _slideFrom == SlideFrom.Below:
+                    // The whole window moves, frame and all.
+                    SetFrameSuppressed(false);
+                    _riseRestingTop = Top;
+                    Top = _riseRestingTop + _slideDistance;
+                    _pendingAppear = () => AnimateTop(_riseRestingTop, AnimationDuration,
+                        new CubicEase { EasingMode = EasingMode.EaseOut }, done: null);
+                    break;
+
+                case DockAnimation.Slide:
+                    // Frosted glass, Windows' border and its shadow stay where the
+                    // window is, so they're off until the dock is in place.
+                    SetFrameSuppressed(true);
+                    SetSlideOffset(_slideDistance);
+                    _pendingAppear = () => AnimateSlide(0, EdgeSlideDuration,
+                        new CubicEase { EasingMode = EasingMode.EaseOut },
+                        done: () => SetFrameSuppressed(false));
+                    break;
+
+                case DockAnimation.Fade:
+                    // Same for a fade: Windows draws those at full strength, so the
+                    // frosted glass showed as a light gray box and the border as an
+                    // outline before the dock faded in on top of them.
+                    Opacity = 0;
+                    SetFrameSuppressed(true);
+                    _pendingAppear = () =>
+                    {
+                        var fadeIn = new DoubleAnimation(0, 1, AnimationDuration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        fadeIn.Completed += Latest(() => SetFrameSuppressed(false));
+                        BeginAnimation(OpacityProperty, fadeIn);
+                    };
+                    break;
+
+                default: // None: just appears
+                    SetFrameSuppressed(false);
+                    break;
+            }
+        }
+
+        /// <summary>How far (in DIPs) below the dock's resting place its own monitor
+        /// still goes — the most Middle center can rise from without leaving that
+        /// monitor (on to the screen edge, or on to a monitor below).</summary>
+        private double RoomBelowOnMonitor()
+        {
+            try
+            {
+                var source = PresentationSource.FromVisual(this);
+                Matrix toDevice = source?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+                double scaleX = toDevice.M11 > 0 ? toDevice.M11 : 1;
+                double scaleY = toDevice.M22 > 0 ? toDevice.M22 : 1;
+                var dockPx = new System.Drawing.Rectangle(
+                    (int)Math.Round(Left * scaleX), (int)Math.Round(Top * scaleY),
+                    Math.Max(1, (int)Math.Round(Width * scaleX)), Math.Max(1, (int)Math.Round(Height * scaleY)));
+                var monitor = System.Windows.Forms.Screen.FromRectangle(dockPx).Bounds;
+                return (monitor.Bottom - dockPx.Bottom) / scaleY;
+            }
+            catch
+            {
+                return RiseDistance;
+            }
+        }
+
+        // The appear animation BeginAppearAnimation set up, waiting for the window's
+        // first frame (see StartAppearAnimation).
+        private Action? _pendingAppear;
+
+        /// <summary>Starts the appear animation BeginAppearAnimation set up — once
+        /// the window's first frame is drawn (see ShowDock).</summary>
+        private void StartAppearAnimation()
+        {
+            var start = _pendingAppear;
+            _pendingAppear = null;
+            start?.Invoke();
+        }
+
+        /// <summary>The mirror image of BeginAppearAnimation, called from HideDock —
+        /// every branch ends by setting Visibility=Hidden, after its animation.
+        /// Reopening first (ShowDock bumps _showVersion) cancels that.</summary>
         private void BeginDisappearAnimation()
         {
-            switch (_config.Position)
+            int version = _showVersion;
+            void FinishHiding()
             {
-                case DockPosition.BottomCenter:
-                case DockPosition.BottomRight:
-                    SlideOut(toOffset: SlideDistance);
+                if (version != _showVersion)
+                    return; // reopened meanwhile
+                Visibility = Visibility.Hidden;
+                ResetAnimations();
+            }
+
+            switch (_activeAnimation)
+            {
+                case DockAnimation.Slide when _slideFrom == SlideFrom.Below:
+                    double restingTop = _riseRestingTop;
+                    AnimateTop(restingTop + _slideDistance, AnimationDuration,
+                        new QuadraticEase { EasingMode = EasingMode.EaseIn },
+                        done: () =>
+                        {
+                            if (version != _showVersion)
+                                return;
+                            FinishHiding();
+                            Top = restingTop; // back where PositionDock put it
+                        });
                     break;
 
-                case DockPosition.TopCenter:
-                case DockPosition.TopRight:
-                case DockPosition.TopLeft:
-                    SlideOut(toOffset: -SlideDistance);
+                case DockAnimation.Slide:
+                    SetFrameSuppressed(true); // see BeginAppearAnimation
+                    AnimateSlide(_slideDistance, EdgeSlideDuration,
+                        new QuadraticEase { EasingMode = EasingMode.EaseIn }, done: FinishHiding);
                     break;
 
-                case DockPosition.Center:
-                    var fade = new DoubleAnimation(Opacity, 0, AnimationDuration);
-                    fade.Completed += (_, _) => Visibility = Visibility.Hidden;
+                case DockAnimation.Fade:
+                    SetFrameSuppressed(true); // see BeginAppearAnimation
+                    var fade = new DoubleAnimation { To = 0, Duration = AnimationDuration };
+                    fade.Completed += Latest(FinishHiding);
                     BeginAnimation(OpacityProperty, fade);
                     break;
 
-                case DockPosition.MiddleLeft:
-                    SlideOutHorizontal(toOffset: -SlideDistance); // slides back out to the left
-                    break;
-
-                case DockPosition.MiddleRight:
-                    SlideOutHorizontal(toOffset: SlideDistance); // slides back out to the right
-                    break;
-
-                default: // BottomLeft
+                default:
                     Visibility = Visibility.Hidden;
                     break;
             }
         }
 
-        private void SlideIn(double fromOffset)
+        /// <summary>Moves the dock's contents (not its window) <paramref name="offset"/>
+        /// DIPs away from where they rest, toward the edge it slides from. Whatever
+        /// passes the window's edge isn't drawn, so it looks like it comes out from
+        /// that edge (from behind the taskbar, at the bottom).</summary>
+        private void SetSlideOffset(double offset)
         {
-            double restingTop = Top;
-            var anim = new DoubleAnimation
+            var (x, y) = SlideVector(offset);
+            SlideTransform.X = x;
+            SlideTransform.Y = y;
+        }
+
+        private (double X, double Y) SlideVector(double offset) => _slideFrom switch
+        {
+            SlideFrom.Top => (0, -offset),
+            SlideFrom.Left => (-offset, 0),
+            SlideFrom.Right => (offset, 0),
+            _ => (0, offset), // Bottom
+        };
+
+        /// <summary>Slides the contents to <paramref name="offset"/> (0 = in place)
+        /// from wherever they are now.</summary>
+        private void AnimateSlide(double offset, Duration duration, IEasingFunction easing, Action? done)
+        {
+            var (x, y) = SlideVector(offset);
+            bool horizontal = _slideFrom is SlideFrom.Left or SlideFrom.Right;
+            DependencyProperty property = horizontal ? TranslateTransform.XProperty : TranslateTransform.YProperty;
+            double to = horizontal ? x : y;
+
+            var anim = new DoubleAnimation { To = to, Duration = duration, EasingFunction = easing };
+            anim.Completed += Latest(() =>
             {
-                From = restingTop + fromOffset,
-                To = restingTop,
-                Duration = AnimationDuration,
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
-            };
-            anim.Completed += (_, _) =>
+                // Release the clock (WPF holds the end value otherwise) and keep it.
+                SlideTransform.BeginAnimation(property, null);
+                SlideTransform.SetValue(property, to);
+                done?.Invoke();
+            });
+            SlideTransform.BeginAnimation(property, anim);
+        }
+
+        /// <summary>Moves the whole window to <paramref name="top"/> from wherever
+        /// it is now (Middle center's rise).</summary>
+        private void AnimateTop(double top, Duration duration, IEasingFunction easing, Action? done)
+        {
+            var anim = new DoubleAnimation { To = top, Duration = duration, EasingFunction = easing };
+            anim.Completed += Latest(() =>
             {
-                // Mirrors SlideOut's own Completed handler below — without this, this
-                // animation's clock stays attached (WPF's default FillBehavior.HoldEnd)
-                // even after it's visually finished, so it keeps overriding
-                // GetValue(TopProperty) with its own held value — a later plain "Top = "
-                // assignment (PositionDock, after a Settings Save, say) would silently
-                // have no visible effect until this clock is explicitly cleared. See
-                // PositionDock's own belt-and-suspenders clear of this too.
+                // Without this, the clock stays attached (WPF's default
+                // FillBehavior.HoldEnd) and keeps overriding Top, so a later plain
+                // "Top = " (PositionDock, after a Settings Save, say) would have no
+                // visible effect.
                 BeginAnimation(TopProperty, null);
-                Top = restingTop;
-            };
+                Top = top;
+                done?.Invoke();
+            });
             BeginAnimation(TopProperty, anim);
-        }
-
-        private void SlideOut(double toOffset)
-        {
-            double restingTop = Top;
-            var anim = new DoubleAnimation
-            {
-                From = restingTop,
-                To = restingTop + toOffset,
-                Duration = AnimationDuration,
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn },
-            };
-            anim.Completed += (_, _) =>
-            {
-                Visibility = Visibility.Hidden;
-                // Release the animation's hold on Top and put it back exactly at its
-                // resting value — otherwise the next ShowDock's PositionDock call would
-                // be fighting a still-active animation still holding Top at the
-                // slid-away value.
-                BeginAnimation(TopProperty, null);
-                Top = restingTop;
-            };
-            BeginAnimation(TopProperty, anim);
-        }
-
-        /// <summary>MiddleLeft/MiddleRight's counterpart to SlideIn — those two
-        /// positions have no top/bottom work-area edge to slide in from (they're
-        /// vertically centered against a side edge instead), so they animate Left
-        /// rather than Top.</summary>
-        private void SlideInHorizontal(double fromOffset)
-        {
-            double restingLeft = Left;
-            var anim = new DoubleAnimation
-            {
-                From = restingLeft + fromOffset,
-                To = restingLeft,
-                Duration = AnimationDuration,
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
-            };
-            anim.Completed += (_, _) =>
-            {
-                // Same reasoning as SlideIn's own Completed handler above, but for Left.
-                BeginAnimation(LeftProperty, null);
-                Left = restingLeft;
-            };
-            BeginAnimation(LeftProperty, anim);
-        }
-
-        /// <summary>MiddleLeft/MiddleRight's counterpart to SlideOut — see
-        /// SlideInHorizontal for why this animates Left instead of Top.</summary>
-        private void SlideOutHorizontal(double toOffset)
-        {
-            double restingLeft = Left;
-            var anim = new DoubleAnimation
-            {
-                From = restingLeft,
-                To = restingLeft + toOffset,
-                Duration = AnimationDuration,
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn },
-            };
-            anim.Completed += (_, _) =>
-            {
-                Visibility = Visibility.Hidden;
-                // Same reasoning as SlideOut's Completed handler above, but for Left.
-                BeginAnimation(LeftProperty, null);
-                Left = restingLeft;
-            };
-            BeginAnimation(LeftProperty, anim);
         }
 
         private void Window_Deactivated(object sender, EventArgs e) => HideDock();
@@ -2745,6 +3010,26 @@ namespace StartDock.Views
                     return;
                 }
                 HideDock();
+                return;
+            }
+
+            // Ctrl+Z: undo the last removal while its "Undo" bar is up.
+            // (Not while typing in a text box, which has its own undo — except an
+            // empty search box, where the dock's focus usually sits.)
+            if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control && _undoSnapshot != null
+                && (Keyboard.FocusedElement is not TextBox
+                    || (ReferenceEquals(Keyboard.FocusedElement, SearchBox) && SearchBox.Text.Length == 0)))
+            {
+                UndoRemoval();
+                e.Handled = true;
+                return;
+            }
+
+            // Backspace inside a pinned folder: up one level, like File Explorer.
+            if (e.Key == Key.Back && _browse != null && Keyboard.FocusedElement is not TextBox)
+            {
+                BrowseUp();
+                e.Handled = true;
                 return;
             }
 
@@ -3055,6 +3340,10 @@ namespace StartDock.Views
                 OpenFolder(vm);
                 return;
             }
+
+            // A pinned folder from disk (or one inside it) opens in the dock.
+            if (TryBrowseFolder(vm))
+                return;
 
             string target = vm.Model.TargetPath ?? string.Empty;
 
@@ -3464,6 +3753,14 @@ namespace StartDock.Views
 
         private void RefreshEmptyState()
         {
+            if (_browse != null && _openFolder != null)
+            {
+                EmptyStateText.Text = _browse.Error ?? "This folder is empty.";
+                EmptyStateText.Visibility = !_browse.Loading && _openFolder.Children.Count == 0
+                    ? Visibility.Visible : Visibility.Collapsed;
+                return;
+            }
+
             if (_openFolder != null)
             {
                 EmptyStateText.Text = "This folder is empty.";
@@ -3912,6 +4209,7 @@ namespace StartDock.Views
 
         private void OpenFolder(DockIconViewModel folderVm)
         {
+            EndBrowse();
             _openFolder = folderVm;
             FolderNameBox.Text = folderVm.Name;
 
@@ -3926,6 +4224,7 @@ namespace StartDock.Views
 
         private void CloseFolder()
         {
+            EndBrowse();
             _openFolder = null;
             FolderHeaderGrid.Visibility = Visibility.Collapsed;
 
@@ -3950,7 +4249,13 @@ namespace StartDock.Views
             }
         }
 
-        private void FolderBack_Click(object sender, RoutedEventArgs e) => CloseFolder();
+        private void FolderBack_Click(object sender, RoutedEventArgs e)
+        {
+            if (_browse != null)
+                BrowseUp(); // up a level inside a pinned folder
+            else
+                CloseFolder();
+        }
 
         /// <summary>"Rename folder" on a folder tile's context menu — opens the folder
         /// if it isn't already, and puts the cursor straight into the name box with the
@@ -3983,7 +4288,7 @@ namespace StartDock.Views
 
         private void CommitFolderRename()
         {
-            if (_openFolder == null) return;
+            if (_openFolder == null || _browse != null) return;
 
             string newName = FolderNameBox.Text.Trim();
             if (string.IsNullOrEmpty(newName))
@@ -3999,7 +4304,7 @@ namespace StartDock.Views
 
         private void UngroupFolder_Click(object sender, RoutedEventArgs e)
         {
-            if (_openFolder != null)
+            if (_openFolder != null && _browse == null)
                 UngroupFolder(_openFolder);
         }
 
@@ -4168,13 +4473,18 @@ namespace StartDock.Views
             if (!ConfirmRemoveTile(vm))
                 return;
 
+            string undoMessage = vm.IsFolder ? $"Removed the folder \"{vm.Name}\"" : $"Removed \"{vm.Name}\"";
+
             if (_openFolder != null)
             {
+                BeginUndoable();
+
                 // Removing an app while browsing inside a folder removes it from that
                 // folder specifically, not from wherever the folder itself lives.
                 _openFolder.Model.Children?.RemoveAll(i => i.Id == vm.Model.Id);
                 _openFolder.Children.Remove(vm);
-                DeleteCachedIcon(vm);
+                DiscardCachedIcon(vm);
+                ShowUndo(undoMessage);
 
                 if (_openFolder.Children.Count <= 1)
                 {
@@ -4194,16 +4504,18 @@ namespace StartDock.Views
             if (category == null)
                 return;
 
+            BeginUndoable();
             category.Model.Icons.RemoveAll(i => i.Id == vm.Model.Id);
             category.Icons.Remove(vm);
             _searchResults.Remove(vm); // keep an active search's results in sync too
 
             // A folder has no cached icon of its own to clean up — its children do.
             if (vm.IsFolder)
-                foreach (var child in vm.Children) DeleteCachedIcon(child);
+                foreach (var child in vm.Children) DiscardCachedIcon(child);
             else
-                DeleteCachedIcon(vm);
+                DiscardCachedIcon(vm);
 
+            ShowUndo(undoMessage);
             RefreshEmptyState();
             PersistConfig();
         }
@@ -4447,6 +4759,527 @@ namespace StartDock.Views
             _categories.FirstOrDefault(c => c.Icons.Contains(vm));
 
         // ---------------------------------------------------------------
+        // Undo after removing a tile, folder or category
+        // ---------------------------------------------------------------
+
+        // The pinned tiles (_config.Categories) as they were just before the last
+        // removal, while its "Undo" bar is up. Null when there's nothing to undo.
+        private string? _undoSnapshot;
+        // Icon files the last removal left unused. Kept until undo is no longer
+        // possible, so Undo brings custom icons back too.
+        private readonly List<string> _undoIconFiles = new();
+        private DispatcherTimer? _undoTimer;
+        private static readonly TimeSpan UndoTime = TimeSpan.FromSeconds(10);
+
+        /// <summary>Call right before a removal (after any question has been
+        /// answered): remembers the pinned tiles so the removal can be undone.</summary>
+        private void BeginUndoable()
+        {
+            FinishUndoable(); // the previous removal can't be undone any more
+            try { _undoSnapshot = System.Text.Json.JsonSerializer.Serialize(_config.Categories); }
+            catch { _undoSnapshot = null; }
+        }
+
+        /// <summary>A removed tile's icon file: deleted once undo is no longer
+        /// possible (right away when this removal can't be undone).</summary>
+        private void DiscardCachedIcon(DockIconViewModel vm)
+        {
+            if (string.IsNullOrEmpty(vm.Model.CachedIconPath))
+                return;
+            if (_undoSnapshot != null)
+                _undoIconFiles.Add(vm.Model.CachedIconPath);
+            else
+                DeleteCachedIcon(vm);
+        }
+
+        /// <summary>Shows "Removed … · Undo" for a few seconds (Ctrl+Z works too).</summary>
+        private void ShowUndo(string message)
+        {
+            if (_undoSnapshot == null)
+                return;
+            UndoText.Text = message;
+            UndoText.ToolTip = message;
+            UndoBar.Visibility = Visibility.Visible;
+            if (_undoTimer == null)
+            {
+                _undoTimer = new DispatcherTimer { Interval = UndoTime };
+                _undoTimer.Tick += (_, _) => FinishUndoable();
+            }
+            _undoTimer.Stop();
+            _undoTimer.Start();
+        }
+
+        /// <summary>Ends the chance to undo: hides the bar and deletes the icon files
+        /// the removal left unused.</summary>
+        private void FinishUndoable()
+        {
+            _undoTimer?.Stop();
+            UndoBar.Visibility = Visibility.Collapsed;
+            _undoSnapshot = null;
+            if (_undoIconFiles.Count == 0)
+                return;
+
+            var inUse = new HashSet<string>(
+                _categories.SelectMany(c => c.Icons)
+                    .SelectMany(v => v.IsFolder ? v.Children.AsEnumerable() : new[] { v })
+                    .Select(v => v.Model.CachedIconPath ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (string path in _undoIconFiles)
+            {
+                if (inUse.Contains(path))
+                    continue;
+                try { if (File.Exists(path)) File.Delete(path); } catch { /* best-effort cleanup */ }
+            }
+            _undoIconFiles.Clear();
+        }
+
+        /// <summary>Puts back every tile, folder and category the last removal took
+        /// away, just as they were.</summary>
+        private void UndoRemoval()
+        {
+            if (_undoSnapshot == null)
+                return;
+
+            List<Category>? restored;
+            try { restored = System.Text.Json.JsonSerializer.Deserialize<List<Category>>(_undoSnapshot); }
+            catch { restored = null; }
+
+            _undoTimer?.Stop();
+            UndoBar.Visibility = Visibility.Collapsed;
+            _undoSnapshot = null;
+            _undoIconFiles.Clear(); // in use again
+            if (restored == null)
+                return;
+
+            // An open folder's tiles are about to be replaced.
+            if (_openFolder != null)
+                CloseFolder();
+
+            _config.Categories.Clear();
+            _config.Categories.AddRange(restored);
+            LoadIconsFromConfig();
+            RefreshRunningIndicators();
+
+            string filter = SearchBox.Text.Trim();
+            if (!string.IsNullOrEmpty(filter))
+                RenderSearchResults(filter, _lastInstalledApps);
+            UpdateAutoSections();
+            PersistConfig();
+        }
+
+        private void Undo_Click(object sender, RoutedEventArgs e) => UndoRemoval();
+
+        private void UndoDismiss_Click(object sender, RoutedEventArgs e) => FinishUndoable();
+
+        // ---------------------------------------------------------------
+        // Recent files on a tile's right-click menu (like the taskbar's)
+        // ---------------------------------------------------------------
+
+        // Each app's recent list, as last read, so the menu opens with it already
+        // there; re-read in the background when it's older than RecentListMaxAge.
+        private readonly Dictionary<string, (DateTime Read, IReadOnlyList<JumpListService.Item> Items)> _recentByApp =
+            new(StringComparer.OrdinalIgnoreCase);
+        private static readonly TimeSpan RecentListMaxAge = TimeSpan.FromSeconds(30);
+
+        private async void TileContextMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            if (sender is not ContextMenu menu || menu.PlacementTarget is not FrameworkElement { Tag: DockIconViewModel vm })
+                return;
+            var recentMenu = menu.Items.OfType<MenuItem>().FirstOrDefault(m => m.Name == "RecentFilesMenu");
+            var separator = menu.Items.OfType<Separator>().FirstOrDefault(s => s.Name == "RecentFilesSeparator");
+            if (recentMenu == null)
+                return;
+
+            string target = vm.Model.TargetPath ?? string.Empty;
+            (DateTime Read, IReadOnlyList<JumpListService.Item> Items) known = default;
+            bool haveList = vm.IsApp && _recentByApp.TryGetValue(target, out known);
+            ShowRecentItems(recentMenu, separator, vm, haveList ? known.Items : null);
+            if (!vm.IsApp || (haveList && DateTime.UtcNow - known.Read < RecentListMaxAge))
+                return;
+
+            IReadOnlyList<JumpListService.Item> items;
+            try { items = await JumpListService.GetRecentAsync(target); }
+            catch { return; }
+            _recentByApp[target] = (DateTime.UtcNow, items);
+
+            if (menu.IsOpen && menu.PlacementTarget is FrameworkElement { Tag: DockIconViewModel still } && ReferenceEquals(still, vm))
+                ShowRecentItems(recentMenu, separator, vm, items);
+        }
+
+        private void ShowRecentItems(MenuItem recentMenu, Separator? separator, DockIconViewModel app,
+            IReadOnlyList<JumpListService.Item>? items)
+        {
+            recentMenu.Items.Clear();
+            if (items != null)
+            {
+                foreach (var item in items)
+                {
+                    var entry = new MenuItem
+                    {
+                        // A TextBlock, so an "_" in a file name shows as itself.
+                        Header = new TextBlock { Text = item.Name, MaxWidth = 360, TextTrimming = TextTrimming.CharacterEllipsis },
+                        ToolTip = item.Path,
+                    };
+                    entry.Click += (_, _) => OpenRecentItem(app, item);
+                    recentMenu.Items.Add(entry);
+                }
+            }
+            recentMenu.Visibility = recentMenu.Items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (separator != null)
+                separator.Visibility = recentMenu.Visibility;
+        }
+
+        private void OpenRecentItem(DockIconViewModel app, JumpListService.Item item)
+        {
+            string target = app.Model.TargetPath ?? string.Empty;
+            JumpListService.Open(target, item);
+            RecordAppLaunch(target);
+            HideDock();
+        }
+
+        // ---------------------------------------------------------------
+        // Pinned folders open inside the dock (AppConfig.OpenFoldersInDock)
+        // ---------------------------------------------------------------
+
+        // Where the dock is while browsing a pinned folder from disk: the folder the
+        // tile points to (Root) and the folder shown now (Path) — the same or one
+        // inside it. Shown through the folder view (_openFolder holds a stand-in
+        // folder whose Children are the folder's contents), so search, dragging and
+        // the rest behave as they do inside a folder tile.
+        private sealed class FolderBrowse
+        {
+            public string Root = string.Empty;
+            public string Path = string.Empty;
+            public string RootName = string.Empty;
+            public bool Loading;
+            public string? Error;
+            public bool Truncated;
+        }
+
+        private FolderBrowse? _browse;
+        private int _browseVersion;
+        private const int MaxBrowseItems = 500;
+        // Decoded icons by cache key (see BrowseIconKey), so moving around doesn't
+        // read the same files again.
+        private readonly Dictionary<string, ImageSource?> _browseIcons = new(StringComparer.OrdinalIgnoreCase);
+
+        private readonly record struct BrowseEntry(string Name, string FullPath, bool IsFolder, bool IsProgram, bool HasOwnIcon, DateTime Modified);
+
+        /// <summary>Clicking a pinned folder shows what's in it right in the dock; a
+        /// folder inside it opens in place. Shift+click opens it in File Explorer
+        /// instead. False when the tile isn't a folder (or the setting is off).</summary>
+        private bool TryBrowseFolder(DockIconViewModel vm)
+        {
+            string target = Environment.ExpandEnvironmentVariables(vm.Model.TargetPath ?? string.Empty);
+
+            if (_browse != null && vm.IsBrowseFolder)
+            {
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                    return false; // Shift+click: File Explorer
+                NavigateBrowse(target);
+                return true;
+            }
+
+            if (!_config.OpenFoldersInDock || vm.IsSearchResult || vm.IsFolder
+                || (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                return false;
+
+            // Only local folders: a network folder can take a long time to answer.
+            if (target.Length < 3 || !Path.IsPathRooted(target) || target.StartsWith(@"\\", StringComparison.Ordinal))
+                return false;
+            try
+            {
+                if (!Directory.Exists(target))
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            OpenBrowse(vm, target);
+            return true;
+        }
+
+        private void OpenBrowse(DockIconViewModel tile, string path)
+        {
+            _openFolder = new DockIconViewModel(new DockIcon { Name = tile.Name });
+            _browse = new FolderBrowse { Root = path, Path = path, RootName = tile.Name };
+            SetFolderHeaderMode(browse: true);
+
+            // Like search results, names always show here (HideIconNames is for
+            // your own pinned tiles): files are hard to tell apart by icon alone.
+            ShowFlowGrid(_openFolder.Children, isSearch: true);
+            SearchGrid.Visibility = Visibility.Collapsed;
+            FolderHeaderGrid.Visibility = Visibility.Visible;
+            Keyboard.Focus(FolderBackButton);
+            _ = LoadBrowseAsync();
+        }
+
+        private void NavigateBrowse(string path)
+        {
+            if (_browse == null)
+                return;
+            _browse.Path = path;
+            _ = LoadBrowseAsync();
+        }
+
+        /// <summary>Back (or Backspace): up one folder, or out of the folder when at
+        /// the pinned folder itself.</summary>
+        private void BrowseUp()
+        {
+            if (_browse == null)
+                return;
+            string current = _browse.Path.TrimEnd('\\');
+            if (string.Equals(current, _browse.Root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
+                || Path.GetDirectoryName(current) is not { Length: > 0 } parent)
+            {
+                CloseFolder();
+                return;
+            }
+            NavigateBrowse(parent);
+        }
+
+        /// <summary>Leaves folder browsing (CloseFolder and OpenFolder call this).</summary>
+        private void EndBrowse()
+        {
+            if (_browse == null)
+                return;
+            _browse = null;
+            _browseVersion++; // a listing still on its way is no longer wanted
+            SetFolderHeaderMode(browse: false);
+        }
+
+        /// <summary>The folder header shows a pinned folder's editable name and
+        /// Ungroup — or, browsing a folder from disk, where you are, the sort order
+        /// and Open in File Explorer.</summary>
+        private void SetFolderHeaderMode(bool browse)
+        {
+            FolderNameBox.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
+            BrowseTitleText.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
+            UngroupFolderButton.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
+            BrowseSortButton.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
+            BrowseOpenButton.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void UpdateBrowseHeader()
+        {
+            if (_browse == null)
+                return;
+
+            // "Downloads › Setup files › Drivers"
+            string title = _browse.RootName;
+            string root = _browse.Root.TrimEnd('\\');
+            string current = _browse.Path.TrimEnd('\\');
+            if (current.Length > root.Length && current.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string part in current.Substring(root.Length).Split('\\', StringSplitOptions.RemoveEmptyEntries))
+                    title += " › " + part;
+            }
+            BrowseTitleText.Text = title;
+            BrowseTitleText.ToolTip = _browse.Truncated
+                ? $"{_browse.Path}\nShowing the first {MaxBrowseItems} items. Open in File Explorer to see everything."
+                : _browse.Path;
+
+            BrowseSortButton.ToolTip = _config.FolderBrowseByName
+                ? "Sorted by name. Click to show the newest first."
+                : "Newest first. Click to sort by name.";
+        }
+
+        private void BrowseSort_Click(object sender, RoutedEventArgs e)
+        {
+            _config.FolderBrowseByName = !_config.FolderBrowseByName;
+            PersistConfig();
+            _ = LoadBrowseAsync();
+        }
+
+        private void BrowseOpenInExplorer_Click(object sender, RoutedEventArgs e)
+        {
+            if (_browse == null)
+                return;
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "\"" + _browse.Path + "\"") { UseShellExecute = true });
+            }
+            catch
+            {
+                // Explorer couldn't be started — nothing more to do.
+            }
+            HideDock();
+        }
+
+        /// <summary>Lists the folder being browsed (off the UI thread), shows its
+        /// contents, then fills in their icons a batch at a time.</summary>
+        private async Task LoadBrowseAsync()
+        {
+            if (_browse == null || _openFolder == null)
+                return;
+
+            int version = ++_browseVersion;
+            var browse = _browse;
+            var holder = _openFolder;
+            string path = browse.Path;
+            bool byName = _config.FolderBrowseByName;
+
+            browse.Loading = true;
+            browse.Error = null;
+            UpdateBrowseHeader();
+            RefreshEmptyState();
+
+            List<BrowseEntry> entries;
+            bool truncated;
+            try
+            {
+                (entries, truncated) = await Task.Run(() => ListFolder(path, byName));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                (entries, truncated) = (new List<BrowseEntry>(), false);
+                browse.Error = "StartDock isn't allowed to open this folder.";
+            }
+            catch
+            {
+                (entries, truncated) = (new List<BrowseEntry>(), false);
+                browse.Error = "Couldn't open this folder.";
+            }
+
+            if (version != _browseVersion || _browse != browse)
+                return; // moved on meanwhile
+
+            browse.Loading = false;
+            browse.Truncated = truncated;
+            UpdateBrowseHeader();
+
+            holder.Children.Clear();
+            var tiles = new List<(DockIconViewModel Tile, BrowseEntry Entry)>();
+            foreach (var entry in entries)
+            {
+                var tile = new DockIconViewModel(new DockIcon { Name = entry.Name, TargetPath = entry.FullPath }, isSearchResult: true)
+                {
+                    IsFile = !entry.IsFolder && !entry.IsProgram,
+                    IsBrowseFolder = entry.IsFolder,
+                };
+                if (_browseIcons.TryGetValue(BrowseIconKey(entry), out var icon))
+                    tile.IconImage = icon;
+                holder.Children.Add(tile);
+                tiles.Add((tile, entry));
+            }
+            RefreshEmptyState();
+            FlatScrollViewer.ScrollToTop();
+
+            // Icons: the shell wants an STA thread (see StaWorker).
+            var missing = tiles.Where(t => t.Tile.IconImage == null).ToList();
+            const int batchSize = 24;
+            for (int i = 0; i < missing.Count; i += batchSize)
+            {
+                var batch = missing.Skip(i).Take(batchSize).Select(t => t.Entry).ToList();
+                List<(string Key, ImageSource? Icon)> loaded;
+                try
+                {
+                    loaded = await StaWorker.Run(() => batch.Select(entry =>
+                    {
+                        string key = BrowseIconKey(entry);
+                        Guid id = IconExtractor.StableId(key);
+                        string? iconPath = _iconExtractor.GetCachedPath(id);
+                        if (!File.Exists(iconPath))
+                            iconPath = _iconExtractor.ExtractAndCache(entry.FullPath, id);
+                        return (key, LoadFrozenImage(iconPath));
+                    }).ToList());
+                }
+                catch
+                {
+                    return;
+                }
+                if (version != _browseVersion)
+                    return;
+
+                for (int j = 0; j < loaded.Count; j++)
+                {
+                    _browseIcons[loaded[j].Key] = loaded[j].Icon;
+                    missing[i + j].Tile.IconImage = loaded[j].Icon;
+                }
+                // Files of the same type share an icon: fill in the rest of them too.
+                foreach (var (tile, entry) in missing.Skip(i + batchSize))
+                {
+                    if (tile.IconImage == null && _browseIcons.TryGetValue(BrowseIconKey(entry), out var shared))
+                        tile.IconImage = shared;
+                }
+            }
+        }
+
+        /// <summary>Which cached icon an item uses: programs, shortcuts and folders
+        /// with their own icon get one each; other files share one per file type,
+        /// and plain folders share one — so a big folder doesn't fill the icon
+        /// cache with copies of the same picture.</summary>
+        private static string BrowseIconKey(BrowseEntry entry)
+        {
+            if (entry.HasOwnIcon)
+                return "file:" + entry.FullPath; // same key as file search results
+            if (entry.IsFolder)
+                return "browse:folder";
+            return "browse:type:" + Path.GetExtension(entry.FullPath).ToLowerInvariant();
+        }
+
+        private static readonly HashSet<string> ProgramExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".lnk", ".cmd", ".bat", ".msc", ".appref-ms",
+        };
+
+        private static readonly HashSet<string> OwnIconExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".lnk", ".url", ".ico", ".msc", ".appref-ms", ".cpl", ".scr",
+        };
+
+        private static (List<BrowseEntry> Entries, bool Truncated) ListFolder(string path, bool byName)
+        {
+            var entries = new List<BrowseEntry>();
+            foreach (var info in new DirectoryInfo(path).EnumerateFileSystemInfos())
+            {
+                FileAttributes attributes;
+                try { attributes = info.Attributes; }
+                catch { continue; }
+                if ((attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0)
+                    continue;
+
+                bool isFolder = (attributes & FileAttributes.Directory) != 0;
+                string ext = isFolder ? string.Empty : Path.GetExtension(info.Name);
+                // Like File Explorer, shortcuts show without ".lnk".
+                string name = !isFolder && (ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) || ext.Equals(".url", StringComparison.OrdinalIgnoreCase))
+                    ? Path.GetFileNameWithoutExtension(info.Name)
+                    : info.Name;
+                bool ownIcon = isFolder
+                    ? File.Exists(Path.Combine(info.FullName, "desktop.ini")) // a folder with its own icon
+                    : OwnIconExtensions.Contains(ext);
+                DateTime modified;
+                try { modified = info.LastWriteTimeUtc; }
+                catch { modified = DateTime.MinValue; }
+
+                entries.Add(new BrowseEntry(name, info.FullName, isFolder, ProgramExtensions.Contains(ext), ownIcon, modified));
+            }
+
+            // By name: folders first, then files, in File Explorer's order ("File 2"
+            // before "File 10"). Newest first: everything by date modified.
+            if (byName)
+                entries.Sort((a, b) => a.IsFolder != b.IsFolder ? (a.IsFolder ? -1 : 1) : NaturalCompare(a.Name, b.Name));
+            else
+                entries.Sort((a, b) => b.Modified.CompareTo(a.Modified));
+
+            bool truncated = entries.Count > MaxBrowseItems;
+            if (truncated)
+                entries.RemoveRange(MaxBrowseItems, entries.Count - MaxBrowseItems);
+            return (entries, truncated);
+        }
+
+        private static int NaturalCompare(string a, string b)
+        {
+            try { return StrCmpLogicalW(a, b); }
+            catch { return string.Compare(a, b, StringComparison.CurrentCultureIgnoreCase); }
+        }
+
+        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
+        private static extern int StrCmpLogicalW(string psz1, string psz2);
+
+        // ---------------------------------------------------------------
         // Drag-to-reorder (icon tiles — within a category, or across categories)
         // ---------------------------------------------------------------
 
@@ -4625,15 +5458,16 @@ namespace StartDock.Views
                     $"The first copy of each stays where it is. Duplicates of: {names}.", "Remove"))
                 return;
 
+            BeginUndoable();
             foreach (var (category, tile) in extras)
             {
                 category.Model.Icons.Remove(tile.Model);
                 category.Icons.Remove(tile);
                 _searchResults.Remove(tile);
-                // Only delete the icon file when no remaining tile uses the same one.
-                if (!_categories.SelectMany(c => c.Icons).Any(v => string.Equals(v.Model.CachedIconPath, tile.Model.CachedIconPath, StringComparison.OrdinalIgnoreCase)))
-                    DeleteCachedIcon(tile);
+                // Icon files another tile still uses are kept (see FinishUndoable).
+                DiscardCachedIcon(tile);
             }
+            ShowUndo($"Removed {extras.Count} duplicate {(extras.Count == 1 ? "tile" : "tiles")}");
             RefreshEmptyState();
             PersistConfig();
         }
@@ -5421,18 +6255,20 @@ namespace StartDock.Views
             if (!AskFirst("Remove category", heading, message, "Remove"))
                 return;
 
+            BeginUndoable();
             foreach (var tile in vm.Icons)
             {
                 if (tile.IsFolder)
-                    foreach (var child in tile.Children) DeleteCachedIcon(child);
+                    foreach (var child in tile.Children) DiscardCachedIcon(child);
                 else
-                    DeleteCachedIcon(tile);
+                    DiscardCachedIcon(tile);
                 _searchResults.Remove(tile);
             }
 
             _config.Categories.Remove(vm.Model);
             _categories.Remove(vm);
 
+            ShowUndo($"Removed the category \"{vm.Name}\"");
             RefreshEmptyState();
             PersistConfig();
         }
@@ -5569,7 +6405,8 @@ namespace StartDock.Views
         /// in-flight animation and hiding immediately avoids that z-order flicker.</summary>
         private void NativeStartMenuButton_Click(object sender, RoutedEventArgs e)
         {
-            BeginAnimation(OpacityProperty, null);
+            _showVersion++; // cancels a close animation that's still playing
+            ResetAnimations();
             BeginAnimation(TopProperty, null);
             Visibility = Visibility.Hidden;
 
@@ -5684,7 +6521,14 @@ namespace StartDock.Views
             // whole time it's open — if Position changed, move it to its new
             // resting spot right away rather than waiting for the next ShowDock.
             if (Visibility == Visibility.Visible)
+            {
                 PositionDock();
+                // So closing it now already uses a new Animation setting (or a
+                // new position's slide), instead of mirroring how it opened.
+                ChooseAnimation();
+                if (_activeAnimation == DockAnimation.Slide && _slideFrom == SlideFrom.Below)
+                    _riseRestingTop = Top;
+            }
 
             ConfigChanged?.Invoke(_config);
         }

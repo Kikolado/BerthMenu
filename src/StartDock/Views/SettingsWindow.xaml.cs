@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Win32;
 using StartDock.Models;
 using StartDock.Services;
@@ -79,7 +83,7 @@ namespace StartDock.Views
         // short screen with a little unused space at the bottom than to have this
         // window's own chrome push Save/Cancel below the visible screen after all,
         // which is the exact bug SettingsScrollViewerMaxHeight below exists to fix.
-        private const double ChromeAndFooterAllowance = 220;
+        private const double ChromeAndFooterAllowance = 264; // includes the search row
 
         // Never shrink the scrollable settings list below this, however short the
         // actual screen is — at that point every screen scrolls internally, and a
@@ -97,6 +101,7 @@ namespace StartDock.Views
             _original = current;
             _configService = configService;
             Closing += SettingsWindow_Closing;
+            PreviewKeyDown += SettingsWindow_PreviewKeyDown;
             // Taken once everything is filled in, so "unchanged" means exactly what
             // was shown when Settings opened.
             Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(() => _savedSnapshot = Snapshot()),
@@ -155,6 +160,7 @@ namespace StartDock.Views
             // above, if that ever somehow doesn't find a match.
             int positionIndex = Array.IndexOf(PositionComboOrder, current.Position);
             PositionCombo.SelectedIndex = positionIndex >= 0 ? positionIndex : 0;
+            DockAnimationCombo.SelectedIndex = (int)current.DockAnimation;
 
             MenuBarPositionCombo.SelectedIndex = (int)current.GetMenuBarPlacement(); // items ordered to match MenuBarPlacement
             FlipMenuBarOrderCheck.IsChecked = current.FlipMenuBarOrder;
@@ -164,6 +170,7 @@ namespace StartDock.Views
             RowAlignmentCombo.SelectedIndex = (int)current.IconAlignment;
             LayoutDirectionCombo.SelectedIndex = current.LayoutDirection == LayoutDirection.Columns ? 1 : 0;
             SnapDockWidthCheck.IsChecked = current.SnapDockWidth;
+            OpenFoldersInDockCheck.IsChecked = current.OpenFoldersInDock;
             ColumnAlignmentCombo.SelectedIndex = (int)current.ColumnAlignment; // items ordered to match ColumnAlignment
             UpdateAlignmentRows();
 
@@ -675,6 +682,7 @@ namespace StartDock.Views
                 // See PositionComboOrder's doc comment — SelectedIndex is a position in
                 // the *display* list, not the DockPosition's own int value anymore.
                 Position = PositionComboOrder[PositionCombo.SelectedIndex],
+                DockAnimation = (DockAnimation)Math.Max(0, DockAnimationCombo.SelectedIndex),
                 MenuBarPosition = (MenuBarPlacement)Math.Max(0, MenuBarPositionCombo.SelectedIndex),
                 // Kept in step for an older StartDock reading this config (see AppConfig.MenuBarPosition).
                 MenuBarAtTop = MenuBarPositionCombo.SelectedIndex == (int)MenuBarPlacement.Top,
@@ -682,6 +690,8 @@ namespace StartDock.Views
                 IconAlignment = (RowAlignment)RowAlignmentCombo.SelectedIndex,
                 LayoutDirection = LayoutDirectionCombo.SelectedIndex == 1 ? LayoutDirection.Columns : LayoutDirection.Rows,
                 SnapDockWidth = SnapDockWidthCheck.IsChecked == true,
+                OpenFoldersInDock = OpenFoldersInDockCheck.IsChecked == true,
+                FolderBrowseByName = _original.FolderBrowseByName, // changed from the dock (the folder's sort button)
                 ColumnAlignment = (ColumnAlignment)Math.Max(0, ColumnAlignmentCombo.SelectedIndex),
                 BackgroundOpacity = OpacitySlider.Value,
                 BackgroundImagePath = _pendingBackgroundImagePath,
@@ -946,5 +956,237 @@ namespace StartDock.Views
         /// <summary>Cancel: closes; asks first if something was changed (see
         /// SettingsWindow_Closing).</summary>
         private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
+
+        // ---- Search settings (the box above the cards)
+
+        private sealed record SearchItem(FrameworkElement Source, FrameworkElement Target, string Text, string Tip);
+        private sealed record SearchCard(Border Card, TextBlock? HeaderBlock, string Header, List<SearchItem> Items);
+
+        private List<SearchCard>? _searchIndex;
+        private readonly List<(System.Windows.Documents.AdornerLayer Layer, System.Windows.Documents.Adorner Adorner)> _searchHighlights = new();
+
+        // Other words for what's in here, so a search finds a setting by the word
+        // you think of, not just the one on screen.
+        private static readonly Dictionary<string, string[]> SearchSynonyms = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["transparent"] = new[] { "opacity" },
+            ["transparency"] = new[] { "opacity" },
+            ["see-through"] = new[] { "opacity" },
+            ["invisible"] = new[] { "opacity" },
+            ["blur"] = new[] { "frosted" },
+            ["glass"] = new[] { "frosted" },
+            ["acrylic"] = new[] { "frosted" },
+            ["hotkey"] = new[] { "shortcut", "windows key" },
+            ["keyboard"] = new[] { "shortcut", "windows key" },
+            ["wallpaper"] = new[] { "image" },
+            ["picture"] = new[] { "image" },
+            ["photo"] = new[] { "image" },
+            ["font"] = new[] { "names", "text" },
+            ["dark"] = new[] { "theme" },
+            ["light"] = new[] { "theme" },
+            ["mode"] = new[] { "theme" },
+            ["outline"] = new[] { "border" },
+            ["edge"] = new[] { "border" },
+            ["login"] = new[] { "sign in" },
+            ["boot"] = new[] { "sign in" },
+            ["autostart"] = new[] { "sign in" },
+            ["administrator"] = new[] { "admin" },
+            ["explorer"] = new[] { "file explorer" },
+            ["backup"] = new[] { "backup", "export" },
+            ["move"] = new[] { "position", "export" },
+            ["location"] = new[] { "position" },
+            ["place"] = new[] { "position" },
+            ["recent"] = new[] { "recently" },
+        };
+
+        private void SettingsSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            SettingsSearchPlaceholder.Visibility = SettingsSearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RunSettingsSearch(SettingsSearchBox.Text.Trim());
+        }
+
+        private void SettingsSearchBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && SettingsSearchBox.Text.Length > 0)
+            {
+                SettingsSearchBox.Clear();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter)
+            {
+                // Enter: go to the first match.
+                if (_searchHighlights.Count > 0 && _searchHighlights[0].Adorner.AdornedElement is FrameworkElement first)
+                {
+                    var focusable = first.Focusable ? first : FindLogical<Control>(first).FirstOrDefault(c => c.Focusable && c.IsEnabled);
+                    focusable?.Focus();
+                }
+                e.Handled = true;
+            }
+        }
+
+        private void SettingsWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control && !_capturingKeybind)
+            {
+                SettingsSearchBox.Focus();
+                SettingsSearchBox.SelectAll();
+                e.Handled = true;
+            }
+        }
+
+        private void RunSettingsSearch(string query)
+        {
+            foreach (var (layer, adorner) in _searchHighlights)
+                layer.Remove(adorner);
+            _searchHighlights.Clear();
+
+            _searchIndex ??= BuildSearchIndex();
+            if (query.Length == 0)
+            {
+                foreach (var card in _searchIndex)
+                    card.Card.Opacity = 1;
+                SettingsSearchStatus.Text = string.Empty;
+                return;
+            }
+
+            string[] words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
+            int found = 0;
+            FrameworkElement? firstMatch = null;
+
+            foreach (var card in _searchIndex)
+            {
+                var matches = new List<FrameworkElement>();
+                if (AllWordsIn(words, card.Header) && card.HeaderBlock != null)
+                    matches.Add(card.HeaderBlock); // the whole card is about it
+                foreach (var item in card.Items)
+                {
+                    if (!item.Source.IsVisible || matches.Contains(item.Target))
+                        continue;
+                    // Words in a tooltip count too (it explains the setting), but
+                    // only for a longer search, so "a" doesn't light up everything.
+                    if (AllWordsIn(words, item.Text + " " + card.Header)
+                        || (query.Length >= 4 && AllWordsIn(words, item.Tip)))
+                        matches.Add(item.Target);
+                }
+
+                card.Card.Opacity = matches.Count > 0 ? 1 : 0.35;
+                foreach (var target in matches)
+                {
+                    if (System.Windows.Documents.AdornerLayer.GetAdornerLayer(target) is { } layer)
+                    {
+                        var adorner = new SearchHighlightAdorner(target, accent);
+                        layer.Add(adorner);
+                        _searchHighlights.Add((layer, adorner));
+                    }
+                    firstMatch ??= target;
+                }
+                found += matches.Count;
+            }
+
+            SettingsSearchStatus.Text = found == 0 ? "Nothing found. Try another word."
+                : found == 1 ? "1 match" : $"{found} matches";
+            firstMatch?.BringIntoView();
+        }
+
+        private static bool AllWordsIn(string[] words, string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return false;
+            foreach (string word in words)
+            {
+                if (text.Contains(word, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                // "icons" finds "Icon size".
+                if (word.Length > 3 && word.EndsWith("s", StringComparison.OrdinalIgnoreCase)
+                    && text.Contains(word.Substring(0, word.Length - 1), StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (SearchSynonyms.TryGetValue(word, out var others)
+                    && others.Any(o => text.Contains(o, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>Every card and the settings in it: labels, checkboxes, buttons,
+        /// and a dropdown's choices, each with its tooltip.</summary>
+        private List<SearchCard> BuildSearchIndex()
+        {
+            var cardStyle = TryFindResource("Card") as Style;
+            var headerStyle = TryFindResource("CardHeader") as Style;
+            var rowLabelStyle = TryFindResource("RowLabel") as Style;
+            var rowStyle = TryFindResource("Row") as Style;
+            var cards = new List<SearchCard>();
+
+            foreach (var border in FindLogical<Border>(SettingsScrollViewer))
+            {
+                if (border.Style != cardStyle)
+                    continue;
+                var headerBlock = FindLogical<TextBlock>(border).FirstOrDefault(t => t.Style == headerStyle);
+                var items = new List<SearchItem>();
+                foreach (var element in FindLogical<FrameworkElement>(border))
+                {
+                    string? text = element switch
+                    {
+                        CheckBox { Content: string c } => c,
+                        RadioButton { Content: string c } => c,
+                        Button { Content: string c } => c,
+                        TextBlock t when t.Style == rowLabelStyle => t.Text,
+                        ComboBox combo => string.Join(" ", combo.Items.OfType<ComboBoxItem>().Select(i => i.Content as string)),
+                        _ => null,
+                    };
+                    if (string.IsNullOrWhiteSpace(text))
+                        continue;
+
+                    // Light up the whole row (label and control) when it has one.
+                    FrameworkElement target = element.Parent is Grid { } row && row.Style == rowStyle ? row : element;
+                    items.Add(new SearchItem(element, target, text, element.ToolTip as string ?? string.Empty));
+                }
+                cards.Add(new SearchCard(border, headerBlock, headerBlock?.Text ?? string.Empty, items));
+            }
+            return cards;
+        }
+
+        private static IEnumerable<T> FindLogical<T>(DependencyObject root) where T : DependencyObject
+        {
+            foreach (object child in LogicalTreeHelper.GetChildren(root))
+            {
+                if (child is not DependencyObject element)
+                    continue;
+                if (element is T match)
+                    yield return match;
+                foreach (var inner in FindLogical<T>(element))
+                    yield return inner;
+            }
+        }
+
+        /// <summary>The soft accent box drawn around a setting that matches the search.</summary>
+        private sealed class SearchHighlightAdorner : System.Windows.Documents.Adorner
+        {
+            private readonly Brush _fill;
+            private readonly Pen _outline;
+
+            public SearchHighlightAdorner(UIElement element, Brush accent) : base(element)
+            {
+                IsHitTestVisible = false;
+                var fill = accent.CloneCurrentValue();
+                fill.Opacity = 0.16;
+                fill.Freeze();
+                _fill = fill;
+                var stroke = accent.CloneCurrentValue();
+                stroke.Opacity = 0.8;
+                stroke.Freeze();
+                _outline = new Pen(stroke, 1);
+                _outline.Freeze();
+            }
+
+            protected override void OnRender(DrawingContext drawingContext)
+            {
+                var box = new Rect(AdornedElement.RenderSize);
+                box.Inflate(4, 1);
+                drawingContext.DrawRoundedRectangle(_fill, _outline, box, 4, 4);
+            }
+        }
     }
 }
