@@ -84,7 +84,10 @@ namespace StartDock.Services
         }
 
         /// <summary>Opens a new GitHub issue for StartDock with the StartDock and
-        /// Windows versions already filled in. Needs a GitHub account to submit.</summary>
+        /// Windows versions filled in, plus the last few errors StartDock logged in
+        /// the past two weeks (your Windows user name is taken out of them), so the
+        /// report says what went wrong. Needs a GitHub account to submit, and
+        /// nothing is sent until you do.</summary>
         public static void ReportProblem()
         {
             string version = Updater.Display(Updater.CurrentVersion);
@@ -95,9 +98,19 @@ namespace StartDock.Services
                 "---\n" +
                 $"StartDock {version}\n" +
                 $"Windows {Environment.OSVersion.Version}\n";
-            string url = $"https://github.com/{Updater.Repository}/issues/new"
-                + "?title=" + Uri.EscapeDataString("")
-                + "&body=" + Uri.EscapeDataString(body);
+
+            string errors = RecentErrors();
+            if (errors.Length > 0)
+                body += "\n**Recent errors** (from StartDock's log. Remove anything you'd rather not share.)\n```\n" + errors + "\n```\n";
+
+            OpenUrl($"https://github.com/{Updater.Repository}/issues/new?body=" + Uri.EscapeDataString(body));
+        }
+
+        /// <summary>Opens StartDock's page on GitHub.</summary>
+        public static void OpenGitHub() => OpenUrl($"https://github.com/{Updater.Repository}");
+
+        private static void OpenUrl(string url)
+        {
             try
             {
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
@@ -106,6 +119,40 @@ namespace StartDock.Services
             {
                 // No browser set up — nothing more we can do.
             }
+        }
+
+        /// <summary>The end of crash.log and update.log (if written in the last two
+        /// weeks), at most about 1,500 characters, with the user name replaced.</summary>
+        private static string RecentErrors()
+        {
+            const int maxChars = 1500;
+            var parts = new List<string>();
+            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "StartDock");
+            foreach (string name in new[] { "crash.log", "update.log" })
+            {
+                try
+                {
+                    string path = Path.Combine(folder, name);
+                    if (!File.Exists(path) || DateTime.Now - File.GetLastWriteTime(path) > TimeSpan.FromDays(14))
+                        continue;
+                    string text = File.ReadAllText(path).Trim();
+                    if (text.Length == 0)
+                        continue;
+                    if (text.Length > maxChars / 2)
+                        text = "…" + text.Substring(text.Length - maxChars / 2);
+                    parts.Add($"[{name}]\n{text}");
+                }
+                catch
+                {
+                    // Unreadable — skip it.
+                }
+            }
+
+            string all = string.Join("\n\n", parts);
+            string user = Environment.UserName;
+            if (user.Length > 0)
+                all = all.Replace(user, "<user>", StringComparison.OrdinalIgnoreCase);
+            return all.Replace("```", "'''");
         }
     }
 }

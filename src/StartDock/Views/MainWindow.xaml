@@ -85,11 +85,16 @@
                     PreviewMouseLeftButtonDown="AppTile_PreviewMouseLeftButtonDown"
                     PreviewMouseMove="AppTile_PreviewMouseMove"
                     AllowDrop="True"
+                    ToolTip="{Binding Name}"
+                    ToolTipService.InitialShowDelay="600"
+                    ToolTipOpening="TileButton_ToolTipOpening"
                     Tag="{Binding}">
                 <Button.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Pin to StartDock" Click="PinSearchResult_Click" Tag="{Binding}"
                                   Visibility="{Binding CanPin, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="Hide from search" Click="HideFromSearch_Click" Tag="{Binding}"
+                                  Visibility="{Binding CanHideFromSearch, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="Run as administrator" Click="RunAsAdmin_Click" Tag="{Binding}"
                                   Visibility="{Binding CanRunAsAdmin, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="Open file location" Click="OpenFileLocation_Click" Tag="{Binding}"
@@ -184,7 +189,7 @@
                          than its two-line neighbours. Text stays top-aligned in the slot,
                          so a one-line name sits right under its icon and first lines line
                          up across a row, the way the Windows Start menu lays them out. -->
-                    <TextBlock Text="{Binding Name}"
+                    <TextBlock Text="{Binding Name}" Tag="TileName"
                                FontSize="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=IconNameFontSize}"
                                FontWeight="{Binding RelativeSource={RelativeSource AncestorType=local:MainWindow}, Path=IconNameFontWeight}"
                                Foreground="{DynamicResource PrimaryTextBrush}"
@@ -466,6 +471,7 @@
                     <ScrollViewer.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Add App or Folder" Click="AddAppOrFolder_Click"/>
+                            <MenuItem Header="Remove duplicate tiles…" Click="RemoveDuplicates_Click"/>
                         </ContextMenu>
                     </ScrollViewer.ContextMenu>
                     <!-- Two rows: categories at the top, the automatic Recently Added /

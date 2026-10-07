@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -75,12 +76,19 @@ namespace StartDock.Services
             }
         }
 
+        /// <summary>True when Load found no config.json — a new install, or a
+        /// Reset — so StartDock starts with the welcome window.</summary>
+        public bool IsFirstRun { get; private set; }
+
         public AppConfig Load()
         {
             try
             {
                 if (!File.Exists(ConfigFilePath))
                 {
+                    // First run (or after Settings → Reset): App shows the welcome
+                    // window (Views/WelcomeWindow).
+                    IsFirstRun = true;
                     var fresh = new AppConfig();
                     Save(fresh);
                     return fresh;
@@ -202,7 +210,22 @@ namespace StartDock.Services
         /// (this copy shutting down, say) may write over the restored file.</summary>
         public bool SavesSuspended { get; private set; }
 
-        public sealed record Backup(string FilePath, DateTime Taken, bool BeforeRestore, int Categories, int Tiles);
+        /// <param name="Reason">Why it was taken, when it wasn't just the daily copy:
+        /// "before restoring a backup", "before importing settings", "before
+        /// resetting". Null for the daily ones.</param>
+        public sealed record Backup(string FilePath, DateTime Taken, string? Reason, int Categories, int Tiles);
+
+        private const string BeforeImportNote = "before-import";
+        private const string BeforeResetNote = "before-reset";
+
+        private static string? ReasonFor(string file)
+        {
+            string name = Path.GetFileNameWithoutExtension(file);
+            if (name.EndsWith(BeforeRestoreNote, StringComparison.OrdinalIgnoreCase)) return "before restoring a backup";
+            if (name.EndsWith(BeforeImportNote, StringComparison.OrdinalIgnoreCase)) return "before importing settings";
+            if (name.EndsWith(BeforeResetNote, StringComparison.OrdinalIgnoreCase)) return "before resetting";
+            return null;
+        }
 
         private void BackupBeforeSave()
         {
@@ -269,7 +292,7 @@ namespace StartDock.Services
                         continue;
                     int tiles = config.Categories.Sum(c => c.Icons.Sum(i => i.Children is { Count: > 0 } kids ? kids.Count : 1));
                     result.Add(new Backup(file, File.GetLastWriteTime(file),
-                        Path.GetFileNameWithoutExtension(file).EndsWith(BeforeRestoreNote, StringComparison.OrdinalIgnoreCase),
+                        ReasonFor(file),
                         config.Categories.Count, tiles));
                 }
                 catch
@@ -302,6 +325,141 @@ namespace StartDock.Services
             catch
             {
                 return false;
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Export / import (Settings → Startup) and Reset
+        // ---------------------------------------------------------------
+        //
+        // An export is a zip file (".startdock") holding config.json plus the
+        // pictures it uses — every tile icon in the icon cache (custom ones
+        // included) and the background picture — so it can be brought back on
+        // this PC or another one. Importing puts those pictures into this PC's
+        // StartDock folders and points the settings at them.
+
+        public const string ExportExtension = ".startdock";
+
+        /// <summary>Writes the saved settings (config.json) and their pictures to
+        /// <paramref name="zipPath"/>.</summary>
+        public void ExportSettings(string zipPath)
+        {
+            if (!File.Exists(ConfigFilePath))
+                throw new InvalidOperationException("there are no saved settings yet");
+
+            string json = File.ReadAllText(ConfigFilePath);
+            var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+
+            string temp = zipPath + ".tmp";
+            if (File.Exists(temp))
+                File.Delete(temp);
+            using (var zip = ZipFile.Open(temp, ZipArchiveMode.Create))
+            {
+                zip.CreateEntryFromFile(ConfigFilePath, "config.json");
+
+                var added = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var icon in AllIcons(config))
+                {
+                    string path = icon.CachedIconPath ?? string.Empty;
+                    if (path.Length > 0 && File.Exists(path) && added.Add(Path.GetFileName(path)))
+                        zip.CreateEntryFromFile(path, "icons/" + Path.GetFileName(path));
+                }
+                if (!string.IsNullOrEmpty(config.BackgroundImagePath) && File.Exists(config.BackgroundImagePath))
+                    zip.CreateEntryFromFile(config.BackgroundImagePath, "background/" + Path.GetFileName(config.BackgroundImagePath));
+            }
+            File.Move(temp, zipPath, overwrite: true);
+        }
+
+        /// <summary>Replaces the current settings with an export (after backing the
+        /// current ones up). StartDock must restart afterwards (App.Restart); until
+        /// then nothing else is saved. Throws with a readable message if the file
+        /// isn't a StartDock export.</summary>
+        public void ImportSettings(string zipPath)
+        {
+            using var zip = ZipFile.OpenRead(zipPath);
+            var configEntry = zip.GetEntry("config.json")
+                ?? throw new InvalidOperationException("this isn't a StartDock settings file");
+
+            AppConfig config;
+            using (var reader = new StreamReader(configEntry.Open()))
+                config = JsonSerializer.Deserialize<AppConfig>(reader.ReadToEnd(), JsonOptions)
+                    ?? throw new InvalidOperationException("the settings in this file couldn't be read");
+
+            TakeBackup(BeforeImportNote);
+
+            // Pictures go into this PC's folders; the settings point at them there.
+            Directory.CreateDirectory(IconCacheFolder);
+            foreach (var entry in zip.Entries)
+            {
+                string name = Path.GetFileName(entry.FullName);
+                if (name.Length == 0)
+                    continue;
+                if (entry.FullName.StartsWith("icons/", StringComparison.OrdinalIgnoreCase))
+                    entry.ExtractToFile(Path.Combine(IconCacheFolder, name), overwrite: true);
+            }
+            foreach (var icon in AllIcons(config))
+            {
+                string old = icon.CachedIconPath ?? string.Empty;
+                if (old.Length == 0)
+                    continue;
+                string local = Path.Combine(IconCacheFolder, Path.GetFileName(old));
+                icon.CachedIconPath = File.Exists(local) ? local : string.Empty; // missing: extracted again
+            }
+
+            if (!string.IsNullOrEmpty(config.BackgroundImagePath))
+            {
+                var backgroundEntry = zip.Entries.FirstOrDefault(e =>
+                    e.FullName.StartsWith("background/", StringComparison.OrdinalIgnoreCase) && e.Name.Length > 0);
+                if (backgroundEntry != null)
+                {
+                    ClearBackgroundImage();
+                    string local = Path.Combine(BackgroundImageFolder, backgroundEntry.Name);
+                    backgroundEntry.ExtractToFile(local, overwrite: true);
+                    config.BackgroundImagePath = local;
+                }
+                else
+                {
+                    config.BackgroundImagePath = null;
+                }
+            }
+
+            string tmp = ConfigFilePath + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(config, JsonOptions));
+            File.Copy(tmp, ConfigFilePath, overwrite: true);
+            File.Delete(tmp);
+            SavesSuspended = true;
+        }
+
+        /// <summary>Settings → Reset: backs up the current settings, then removes
+        /// them, so StartDock starts like a new install (with the welcome window)
+        /// after App.Restart. Pinned apps and categories go too.</summary>
+        public bool ResetSettings()
+        {
+            try
+            {
+                TakeBackup(BeforeResetNote);
+                if (File.Exists(ConfigFilePath))
+                    File.Delete(ConfigFilePath);
+                SavesSuspended = true;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static System.Collections.Generic.IEnumerable<DockIcon> AllIcons(AppConfig config)
+        {
+            foreach (var category in config.Categories)
+            {
+                foreach (var icon in category.Icons)
+                {
+                    yield return icon;
+                    if (icon.Children != null)
+                        foreach (var child in icon.Children)
+                            yield return child;
+                }
             }
         }
 

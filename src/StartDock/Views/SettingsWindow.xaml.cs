@@ -132,10 +132,13 @@ namespace StartDock.Views
             AutoStartCheck.IsChecked = current.AutoStart;
             StartAsAdminCheck.IsChecked = current.StartAsAdmin;
             AutoUpdateCheck.IsChecked = current.AutoUpdate;
+            ExplorerPinMenuCheck.IsChecked = current.ExplorerPinMenu;
             Updater.StatusChanged += UpdateUpdaterStatus;
             Closed += (_, _) => Updater.StatusChanged -= UpdateUpdaterStatus;
             UpdateUpdaterStatus();
             UpdateBackupStatus();
+            _hidden = new System.Collections.Generic.List<HiddenSearchItem>(current.HiddenFromSearch);
+            UpdateHiddenSearchText();
             AdminStatusText.Text = App.IsElevated ? "Running as Admin" : "Not running as Admin";
             RestartAsAdminButton.IsEnabled = !App.IsElevated;
             ThemeCombo.SelectedIndex = current.Theme switch
@@ -174,6 +177,7 @@ namespace StartDock.Views
             FrostTintCombo.SelectedIndex = (int)current.FrostTint; // items ordered to match FrostTintMode
             HideBorderCheck.IsChecked = current.HideBorder;
             BoldBorderCheck.IsChecked = current.BoldBorder;
+            BorderColorCombo.SelectedIndex = (int)current.BorderColor;
             // Reflects the just-seeded HideBorderCheck state in BoldBorderCheck's
             // IsEnabled right away — see UpdateBorderCheckboxEnabled.
             UpdateBorderCheckboxEnabled();
@@ -315,6 +319,8 @@ namespace StartDock.Views
         private void UpdateBorderCheckboxEnabled()
         {
             BoldBorderCheck.IsEnabled = HideBorderCheck.IsChecked != true;
+            if (BorderColorCombo != null)
+                BorderColorCombo.IsEnabled = HideBorderCheck.IsChecked != true;
         }
 
         /// <summary>Shrinks the dock to its smallest allowed size (see
@@ -540,6 +546,10 @@ namespace StartDock.Views
         private void Tips_Click(object sender, MouseButtonEventArgs e) =>
             WhatsNewWindow.ShowTips(this);
 
+        private void ReportProblem_Click(object sender, MouseButtonEventArgs e) => Changelog.ReportProblem();
+
+        private void GitHub_Click(object sender, MouseButtonEventArgs e) => Changelog.OpenGitHub();
+
         private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
         {
             if (Updater.ReadyInstallerPath == null)
@@ -653,6 +663,7 @@ namespace StartDock.Views
             return new AppConfig
             {
                 Categories = _original.Categories, // category/icon list is managed from the dock itself, not this dialog
+                HiddenFromSearch = new System.Collections.Generic.List<HiddenSearchItem>(_hidden),
                 Hotkey = customSelected
                     ? HotkeyMode.Custom
                     : HotkeyShiftWinRadio.IsChecked == true ? HotkeyMode.ShiftWindowsKey : HotkeyMode.WindowsKey,
@@ -686,6 +697,7 @@ namespace StartDock.Views
                 FrostedBackground = FrostedBackgroundCheck.IsChecked == true,
                 FrostTint = (FrostTintMode)Math.Max(0, FrostTintCombo.SelectedIndex),
                 HideBorder = HideBorderCheck.IsChecked == true,
+                BorderColor = (BorderColorMode)Math.Max(0, BorderColorCombo.SelectedIndex),
                 BoldBorder = BoldBorderCheck.IsChecked == true,
                 HideSearchBar = HideSearchBarCheck.IsChecked == true,
                 ShowNewApps = ShowNewAppsCheck.IsChecked == true,
@@ -699,6 +711,7 @@ namespace StartDock.Views
                 SearchCalculator = SearchCalculatorCheck.IsChecked == true,
                 SearchWeb = SearchWebCheck.IsChecked == true,
                 SearchRun = SearchRunCheck.IsChecked == true,
+                ExplorerPinMenu = ExplorerPinMenuCheck.IsChecked == true,
                 ShowRunningIndicator = ShowRunningIndicatorCheck.IsChecked == true,
                 WebSearchEngine = (WebSearchEngine)Math.Max(0, WebSearchEngineCombo.SelectedIndex),
                 HideCategoryBanners = HideCategoryBannersCheck.IsChecked == true,
@@ -793,6 +806,106 @@ namespace StartDock.Views
         /// App.RestartAsAdministrator). Left open on purpose while the UAC prompt
         /// is up: if it's declined, this window is still here exactly as it was;
         /// if it's accepted, the app's own Shutdown closes it.</summary>
+        // ---- Hidden from search (AppConfig.HiddenFromSearch)
+
+        // A working copy; saved with the rest of the settings.
+        private System.Collections.Generic.List<HiddenSearchItem> _hidden = new();
+
+        private void UpdateHiddenSearchText()
+        {
+            HiddenSearchText.Text = _hidden.Count switch
+            {
+                0 => "Nothing hidden from search",
+                1 => "1 thing hidden from search",
+                _ => $"{_hidden.Count} things hidden from search",
+            };
+            ManageHiddenButton.IsEnabled = _hidden.Count > 0;
+        }
+
+        private void ManageHidden_Click(object sender, RoutedEventArgs e)
+        {
+            new HiddenSearchDialog(_hidden) { Owner = this }.ShowDialog();
+            UpdateHiddenSearchText();
+        }
+
+        // ---- Export / Import / Reset (see ConfigService)
+
+        private void ExportSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new SaveFileDialog
+            {
+                Title = "Export StartDock settings",
+                FileName = $"StartDock settings {DateTime.Now:yyyy-MM-dd}{ConfigService.ExportExtension}",
+                Filter = $"StartDock settings (*{ConfigService.ExportExtension})|*{ConfigService.ExportExtension}",
+                DefaultExt = ConfigService.ExportExtension,
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            };
+            if (dialog.ShowDialog(this) != true)
+                return;
+            try
+            {
+                _configService.ExportSettings(dialog.FileName);
+                FooterStatusText.Text = HasUnsavedChanges
+                    ? $"Exported to {Path.GetFileName(dialog.FileName)} (without the changes not saved yet)."
+                    : $"Exported to {Path.GetFileName(dialog.FileName)}.";
+                FooterStatusText.ToolTip = dialog.FileName;
+            }
+            catch (Exception ex)
+            {
+                ConfirmDialog.Tell(this, "Export", "Couldn't export your settings.", ex.Message);
+            }
+        }
+
+        private void ImportSettings_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Import StartDock settings",
+                Filter = $"StartDock settings (*{ConfigService.ExportExtension})|*{ConfigService.ExportExtension}|All files (*.*)|*.*",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                CheckFileExists = true,
+            };
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            if (!ConfirmDialog.Ask(this, "Import settings", $"Import \"{Path.GetFileName(dialog.FileName)}\"?",
+                    "Your current settings and pinned apps are replaced. They're backed up first, so Restore a backup can bring them back. StartDock restarts.",
+                    "Import"))
+                return;
+
+            try
+            {
+                _configService.ImportSettings(dialog.FileName);
+            }
+            catch (Exception ex)
+            {
+                ConfirmDialog.Tell(this, "Import", "Couldn't import those settings. Nothing was changed.", ex.Message);
+                return;
+            }
+
+            _closeWithoutAsking = true;
+            if (System.Windows.Application.Current is App app)
+                app.Restart();
+        }
+
+        private void ResetSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (!ConfirmDialog.Ask(this, "Reset", "Start over with a fresh StartDock?",
+                    "Removes all your pinned apps and categories and puts every setting back to its default, like a new install. Your current setup is backed up first, so Restore a backup (or Import, if you exported it) can bring it back. StartDock restarts with the welcome screen.",
+                    "Reset"))
+                return;
+
+            if (!_configService.ResetSettings())
+            {
+                ConfirmDialog.Tell(this, "Reset", "Couldn't reset StartDock. Nothing was changed.", string.Empty);
+                return;
+            }
+
+            _closeWithoutAsking = true;
+            if (System.Windows.Application.Current is App app)
+                app.Restart();
+        }
+
         // ---- Settings backups (see ConfigService)
 
         private void UpdateBackupStatus()

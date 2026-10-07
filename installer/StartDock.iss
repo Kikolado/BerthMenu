@@ -77,8 +77,8 @@ begin
   Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
 end;
 
-// Uninstall: always remove the "start when I sign in" entry (it points at the
-// .exe being removed), then offer to remove the user's StartDock settings too.
+// Uninstall: always remove the "start when I sign in" entry and the File
+// Explorer menu item (both point at the .exe being removed), then offer to remove the user's StartDock settings too.
 // They're kept by default so reinstalling later brings everything back.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
@@ -87,6 +87,9 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'StartDock');
+    // "Pin to StartDock" in File Explorer's right-click menu (Settings -> Startup).
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\StartDockPin');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\StartDockPin');
   end;
 
   if CurUninstallStep = usPostUninstall then

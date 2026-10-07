@@ -94,6 +94,21 @@ namespace StartDock.Views
             }
         }
 
+        private bool _canHideFromSearch;
+        /// <summary>Right-click → Hide from search: set on search results that
+        /// aren't pinned or built-in actions (MainWindow.RenderSearchResults).</summary>
+        public bool CanHideFromSearch
+        {
+            get => _canHideFromSearch;
+            set
+            {
+                if (_canHideFromSearch == value)
+                    return;
+                _canHideFromSearch = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CanHideFromSearch)));
+            }
+        }
+
         private string? _shortcutBadge;
         /// <summary>"1"–"9" while Alt is held in the dock: Alt+that number opens
         /// this tile (MainWindow.ShowShortcutBadges). Null otherwise.</summary>

@@ -30,6 +30,16 @@ namespace StartDock
         {
             base.OnStartup(e);
 
+            // File Explorer → "Pin to StartDock" (ExplorerMenuService): hand the path to
+            // the StartDock that's already running and stop here. If none is running,
+            // this one starts as normal and pins it once it's up.
+            string? pinPath = ExplorerMenuService.PinPathFromArgs(e.Args);
+            if (pinPath != null && IsAnotherStartDockRunning() && ExplorerMenuService.TrySendToRunning(pinPath))
+            {
+                Shutdown();
+                return;
+            }
+
             bool alreadyRelaunched = Array.IndexOf(e.Args, ElevatedRelaunchArg) >= 0;
             bool restarted = Array.IndexOf(e.Args, RestartArg) >= 0;
 
@@ -61,6 +71,16 @@ namespace StartDock
                 // The mutex exists but belongs to an elevated copy this (unelevated)
                 // one isn't allowed to open — which itself means one is running.
                 acquired = false;
+            }
+
+            if (!acquired && pinPath != null)
+            {
+                // A "Pin to StartDock" that couldn't reach the running copy: no
+                // "already running" message for that, just stop.
+                _singleInstanceMutex?.Dispose();
+                _singleInstanceMutex = null;
+                Shutdown();
+                return;
             }
 
             if (!acquired)
@@ -162,6 +182,39 @@ namespace StartDock
                     $"You're now on StartDock {Updater.Display(updatedTo)}. Click to see what's new.",
                     Views.WhatsNewWindow.ShowOrActivate);
             StartUpdateChecks();
+
+            // "Pin to StartDock" in File Explorer (off unless turned on in Settings).
+            try { ExplorerMenuService.SetEnabled(Config.ExplorerPinMenu); } catch { /* cosmetic */ }
+            ExplorerMenuService.StartListening(path =>
+                Dispatcher.BeginInvoke(new Action(() => _dockWindow?.PinPaths(new[] { path }))));
+            if (pinPath != null)
+                Dispatcher.BeginInvoke(new Action(() => _dockWindow?.PinPaths(new[] { pinPath })),
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+            // First run (a new install, or Settings → Reset): the welcome window,
+            // once StartDock has finished starting.
+            if (_configService.IsFirstRun)
+                Dispatcher.BeginInvoke(new Action(ShowWelcome), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
+        private void ShowWelcome()
+        {
+            try
+            {
+                var welcome = new Views.WelcomeWindow(Config);
+                if (welcome.ShowDialog() == true && _dockWindow != null)
+                    _dockWindow.ApplyWelcome(Config, welcome.PinMostUsed);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(_configService.AppDataFolder, "crash.log"),
+                        $"{DateTime.Now}: welcome window failed: {ex}\n\n");
+                }
+                catch { /* ignore */ }
+            }
         }
 
         // ---------------------------------------------------------------
@@ -360,6 +413,29 @@ namespace StartDock
         /// with unsaved changes — just close.</summary>
         public static bool IsExiting { get; private set; }
 
+        /// <summary>Whether StartDock's single-instance mutex already exists — i.e.
+        /// another copy is running.</summary>
+        private static bool IsAnotherStartDockRunning()
+        {
+            try
+            {
+                if (Mutex.TryOpenExisting("Global\\StartDock-SingleInstance-9F3B2C4E", out var existing))
+                {
+                    existing.Dispose();
+                    return true;
+                }
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true; // exists, but belongs to an elevated copy
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>Shutdown, after marking IsExiting.</summary>
         internal void ExitApp()
         {
@@ -418,6 +494,7 @@ namespace StartDock
                 _overlayService.Stop();
 
             AutostartService.SetEnabled(updated.AutoStart);
+            try { ExplorerMenuService.SetEnabled(updated.ExplorerPinMenu); } catch { /* cosmetic */ }
 
             ApplyTheme();
         }
@@ -436,6 +513,7 @@ namespace StartDock
 
         protected override void OnExit(ExitEventArgs e)
         {
+            ExplorerMenuService.StopListening();
             _updateTimer?.Stop();
             _hotkeyService?.Dispose();
             _overlayService?.Dispose();

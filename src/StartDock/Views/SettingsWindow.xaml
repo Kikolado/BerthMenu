@@ -143,6 +143,8 @@
                         <StackPanel>
                             <TextBlock Text="Startup" Style="{StaticResource CardHeader}"/>
                             <CheckBox x:Name="AutoStartCheck" Content="Start when I sign in"/>
+                            <CheckBox x:Name="ExplorerPinMenuCheck" Content="&quot;Pin to StartDock&quot; in File Explorer"
+                                      ToolTip="Adds &quot;Pin to StartDock&quot; when you right-click a file or folder in File Explorer. On Windows 11 it's under &quot;Show more options&quot;."/>
                             <CheckBox x:Name="StartAsAdminCheck" Content="Start as Admin"
                                       ToolTip="Lets the shortcut and Start-button replacement work over apps that run as Admin, like some games."/>
                             <Grid Style="{StaticResource Row}" Margin="0,6,0,0">
@@ -179,6 +181,15 @@
                                 <Button x:Name="RestoreBackupButton" Grid.Column="1" Content="Restore a backup…" Click="RestoreBackup_Click"
                                         ToolTip="Your settings and pinned apps are backed up automatically, once a day when something changes. Pick one to go back to it."/>
                             </Grid>
+                            <!-- Export / Import / Reset — see ConfigService. -->
+                            <WrapPanel Margin="0,8,0,0" HorizontalAlignment="Right">
+                                <Button Content="Export…" Margin="0,0,6,0" Click="ExportSettings_Click"
+                                        ToolTip="Save your settings and pinned apps (with their icons) to a file, to bring them back later or onto another PC."/>
+                                <Button Content="Import…" Margin="0,0,6,0" Click="ImportSettings_Click"
+                                        ToolTip="Replace your settings and pinned apps with ones exported earlier. StartDock restarts."/>
+                                <Button Content="Reset…" Click="ResetSettings_Click"
+                                        ToolTip="Start over like a new install: removes your pinned apps and puts every setting back to its default. StartDock restarts."/>
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
 
@@ -617,6 +628,20 @@
                                 </StackPanel>
                             </Grid>
 
+                            <Grid Style="{StaticResource Row}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="{StaticResource LabelColumnWidth}"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Border color" Style="{StaticResource RowLabel}"/>
+                                <ComboBox x:Name="BorderColorCombo" Grid.Column="1" SelectedIndex="0"
+                                          ToolTip="Match theme: a soft gray, or white/black when Bold. White and Black work at either thickness, and color the menu bar's divider line too.">
+                                    <ComboBoxItem Content="Match theme"/>
+                                    <ComboBoxItem Content="White"/>
+                                    <ComboBoxItem Content="Black"/>
+                                </ComboBox>
+                            </Grid>
+
                             <CheckBox x:Name="ShowRunningIndicatorCheck" Content="Show a bar under open apps"
                                       ToolTip="A small line under pinned apps that are running right now, like the taskbar."/>
                         </StackPanel>
@@ -645,6 +670,18 @@
                                     <ComboBoxItem Content="Bing"/>
                                     <ComboBoxItem Content="DuckDuckGo"/>
                                 </ComboBox>
+                            </Grid>
+                            <!-- Right-click a search result → Hide from search; brought
+                                 back here (HiddenSearchDialog). -->
+                            <Grid Style="{StaticResource Row}" Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="HiddenSearchText" Style="{StaticResource RowLabel}"
+                                           Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,8,0"/>
+                                <Button x:Name="ManageHiddenButton" Grid.Column="1" Content="Manage…" Click="ManageHidden_Click"
+                                        ToolTip="Things you hid from search with right-click → Hide from search. Bring them back here."/>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -675,6 +712,16 @@
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            TextDecorations="Underline" Cursor="Hand"
                            MouseLeftButtonUp="Tips_Click"/>
+                <TextBlock Margin="10,0,0,0" Opacity="0.75" Text="Report a problem"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextDecorations="Underline" Cursor="Hand"
+                           ToolTip="Opens a new GitHub issue with your StartDock and Windows versions and recent errors filled in."
+                           MouseLeftButtonUp="ReportProblem_Click"/>
+                <TextBlock Margin="10,0,0,0" Opacity="0.75" Text="GitHub"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextDecorations="Underline" Cursor="Hand"
+                           ToolTip="StartDock's page on GitHub"
+                           MouseLeftButtonUp="GitHub_Click"/>
                 <!-- "Update 0.9.1 available" once a newer version is found — click to
                      install it (see SettingsWindow.xaml.cs UpdateUpdaterStatus). -->
                 <TextBlock x:Name="UpdateAvailableText" Margin="10,0,0,0" Opacity="0.75"

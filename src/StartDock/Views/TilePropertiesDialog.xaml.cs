@@ -17,6 +17,7 @@ namespace StartDock.Views
     public partial class TilePropertiesDialog : Window
     {
         public string TileName => NameBox.Text.Trim();
+        public string Keywords => KeywordsBox.Text.Trim();
         public string Target => TargetBox.Text.Trim().Trim('"');
         public string Arguments => ArgumentsBox.IsEnabled ? ArgumentsBox.Text.Trim() : string.Empty;
         public string StartIn => StartInBox.Text.Trim().Trim('"');
@@ -28,6 +29,7 @@ namespace StartDock.Views
             ThemeService.ApplyTitleBarTheme(this);
 
             NameBox.Text = icon.Name;
+            KeywordsBox.Text = icon.Keywords ?? string.Empty;
             TargetBox.Text = icon.TargetPath;
             ArgumentsBox.Text = icon.Arguments;
             StartInBox.Text = icon.WorkingDirectory;

@@ -1811,7 +1811,17 @@ namespace StartDock.Views
                 return;
             }
 
-            if (!_config.BoldBorder)
+            // Settings → Look → Border color: White/Black pin the color at either
+            // thickness; Theme keeps the soft theme gray (thin) or the theme's
+            // white/black (Bold).
+            Color? chosenColor = _config.BorderColor switch
+            {
+                BorderColorMode.White => Colors.White,
+                BorderColorMode.Black => Colors.Black,
+                _ => null,
+            };
+
+            if (!_config.BoldBorder && chosenColor == null)
             {
                 OutlineBorder.SetResourceReference(Border.BorderBrushProperty, "DockBorderBrush");
                 OutlineBorder.BorderThickness = new Thickness(1);
@@ -1822,16 +1832,17 @@ namespace StartDock.Views
                 return;
             }
 
-            Color boldColor = ThemeService.ResolveIsDark(_config.Theme) ? Colors.White : Colors.Black;
-            var boldBrush = new SolidColorBrush(boldColor);
-            boldBrush.Freeze();
+            Color borderColor = chosenColor ?? (ThemeService.ResolveIsDark(_config.Theme) ? Colors.White : Colors.Black);
+            int thickness = _config.BoldBorder ? 2 : 1;
+            var borderBrush = new SolidColorBrush(borderColor);
+            borderBrush.Freeze();
 
-            OutlineBorder.BorderBrush = boldBrush;
-            OutlineBorder.BorderThickness = new Thickness(2);
-            DividerBorder.Background = boldBrush;
-            _dividerThickness = 2;
+            OutlineBorder.BorderBrush = borderBrush;
+            OutlineBorder.BorderThickness = new Thickness(thickness);
+            DividerBorder.Background = borderBrush;
+            _dividerThickness = thickness;
             ApplyDividerShape();
-            SetSystemBorderColor(boldColor);
+            SetSystemBorderColor(borderColor);
         }
 
         /// <summary>Windows 11 draws its own thin 1px border around the window's
@@ -2008,7 +2019,7 @@ namespace StartDock.Views
                 {
                     int recentCount = Math.Clamp(_config.RecentFilesCount, 2, 12);
                     var known = new Dictionary<string, ImageSource?>(_recentFileIcons, StringComparer.OrdinalIgnoreCase);
-                    var built = await Task.Run(() =>
+                    var built = await StaWorker.Run(() => // icon extraction needs STA — see StaWorker
                     {
                         var list = new List<(RecentFilesService.RecentFile File, string? IconPath, ImageSource? Icon)>();
                         foreach (var file in RecentFilesService.GetRecentFiles(recentCount))
@@ -2724,6 +2735,35 @@ namespace StartDock.Views
                 return;
             }
 
+            // A selected tile: F2 renames it, Delete removes it (asking first when
+            // it's customized, same as the right-click menu). The Menu key and
+            // Shift+F10 already open its right-click menu.
+            if (Keyboard.FocusedElement is Button { Tag: DockIconViewModel focusedTile })
+            {
+                if (e.Key == Key.F2)
+                {
+                    if (focusedTile.IsFolder)
+                    {
+                        if (_openFolder != focusedTile)
+                            OpenFolder(focusedTile);
+                        FolderNameBox.Focus();
+                        FolderNameBox.SelectAll();
+                    }
+                    else
+                    {
+                        RenameTile(focusedTile);
+                    }
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == Key.Delete && focusedTile.IsPinned)
+                {
+                    RemoveTile(focusedTile);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             // Alt+1–9: open the first nine tiles. Holding Alt shows their numbers.
             if (e.Key == Key.System)
             {
@@ -3247,6 +3287,42 @@ namespace StartDock.Views
             }
         }
 
+        /// <summary>A tile's tooltip (its full name) only shows when the name under
+        /// the icon is cut off ("Blue Protocol Star Resona…") or names are hidden.</summary>
+        private void TileButton_ToolTipOpening(object sender, ToolTipEventArgs e)
+        {
+            if (sender is not Button button)
+                return;
+            var nameBlock = FindTileNameBlock(button);
+            if (nameBlock == null || nameBlock.Visibility != Visibility.Visible || nameBlock.ActualWidth <= 0)
+                return; // names hidden: the tooltip is the only way to see it
+
+            var text = new FormattedText(nameBlock.Text ?? string.Empty, System.Globalization.CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight,
+                new Typeface(nameBlock.FontFamily, nameBlock.FontStyle, nameBlock.FontWeight, nameBlock.FontStretch),
+                nameBlock.FontSize, Brushes.Black, VisualTreeHelper.GetDpi(this).PixelsPerDip)
+            {
+                MaxTextWidth = nameBlock.ActualWidth,
+                TextAlignment = TextAlignment.Center,
+            };
+            if (text.Height <= nameBlock.ActualHeight + 0.5)
+                e.Handled = true; // the whole name already shows — no tooltip
+        }
+
+        private static TextBlock? FindTileNameBlock(DependencyObject parent)
+        {
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is TextBlock { Tag: "TileName" } block)
+                    return block;
+                if (FindTileNameBlock(child) is { } found)
+                    return found;
+            }
+            return null;
+        }
+
         private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
         {
             int count = VisualTreeHelper.GetChildrenCount(parent);
@@ -3467,7 +3543,7 @@ namespace StartDock.Views
             try
             {
                 var knownIcons = new Dictionary<string, ImageSource?>(_fileIcons, StringComparer.OrdinalIgnoreCase);
-                found = await Task.Run(() =>
+                found = await StaWorker.Run(() => // icon extraction needs STA — see StaWorker
                 {
                     var list = new List<(FileSearchService.FileResult, string?, ImageSource?)>();
                     foreach (var file in FileSearchService.Search(filter, MaxFileResults))
@@ -3551,9 +3627,13 @@ namespace StartDock.Views
             // in the main grid.
             foreach (var vm in pinned)
             {
-                if (vm.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                if (vm.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) || KeywordTier(vm, filter) < 2)
                     results.Add(vm);
             }
+
+            // Hidden with right-click → Hide from search (AppConfig.HiddenFromSearch).
+            // Pinned tiles above always show.
+            var hidden = new HashSet<string>(_config.HiddenFromSearch.Select(h => h.Target), StringComparer.OrdinalIgnoreCase);
 
             if (installedApps != null)
             {
@@ -3569,6 +3649,9 @@ namespace StartDock.Views
                         continue; // already listed above as a pinned tile
 
                     if (!app.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (hidden.Contains("shell:AppsFolder\\" + app.Model.AppId))
                         continue;
 
                     results.Add(CreateSearchResultTile(app));
@@ -3587,7 +3670,7 @@ namespace StartDock.Views
             var namesSoFar = new HashSet<string>(results.Select(r => r.Name), StringComparer.OrdinalIgnoreCase);
             foreach (var entry in WindowsSettingsCatalog.Search(filter))
             {
-                if (namesSoFar.Add(entry.Name))
+                if (!hidden.Contains(entry.Uri) && namesSoFar.Add(entry.Name))
                     results.Add(CreateSettingsResultTile(entry));
             }
 
@@ -3596,7 +3679,7 @@ namespace StartDock.Views
             // "Power" puts PowerShell first instead of whatever sorts first by name.
             // Then whole-name matches, then alphabetical.
             var ordered = results
-                .OrderBy(v => MatchTier(v.Name, filter))
+                .OrderBy(v => SearchTier(v, filter))
                 .ThenByDescending(UsageScore)
                 .ThenBy(v => v.Name.StartsWith(filter, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
@@ -3612,7 +3695,7 @@ namespace StartDock.Views
                 int at = 0;
                 if (run.Kind == RunCommand.Kind.Command)
                 {
-                    while (at < ordered.Count && MatchTier(ordered[at].Name, filter) == 0)
+                    while (at < ordered.Count && SearchTier(ordered[at], filter) == 0)
                         at++;
                 }
                 ordered.Insert(at, CreateRunTile(run));
@@ -3631,18 +3714,62 @@ namespace StartDock.Views
                 var files = _fileResultsFilter == filter
                     ? _fileResults
                     : _fileResults.Where(f => f.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-                ordered.AddRange(files);
+                ordered.AddRange(files.Where(f => !hidden.Contains(f.Model.TargetPath ?? string.Empty)));
             }
 
             // Web search last — only does anything if clicked; nothing is sent while typing.
             if (_config.SearchWeb)
                 ordered.Add(CreateWebSearchTile(filter));
 
+            // Right-click → Hide from search: anything here that isn't pinned or a
+            // built-in action (calculator, run, web search).
+            foreach (var vm in ordered)
+                vm.CanHideFromSearch = vm.IsSearchResult && !vm.IsAction;
+
             _searchResults.Clear();
             foreach (var vm in ordered)
                 _searchResults.Add(vm);
 
             RefreshEmptyState();
+        }
+
+        /// <summary>How well a tile's own search keywords (Properties → Search
+        /// keywords) match: 0 when a keyword starts with the search text, 1 when
+        /// they contain it, 2 when they don't.</summary>
+        private static int KeywordTier(DockIconViewModel vm, string filter)
+        {
+            string keywords = vm.IsFolder ? string.Empty : vm.Model.Keywords ?? string.Empty;
+            if (keywords.Length == 0)
+                return 2;
+            foreach (string word in keywords.Split(new[] { ' ', ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (word.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
+                    return 0;
+            }
+            return keywords.Contains(filter, StringComparison.OrdinalIgnoreCase) ? 1 : 2;
+        }
+
+        /// <summary>Search ordering: 0 for the best matches (the name, a word in it,
+        /// or a keyword starts with the search text), 1 for the rest.</summary>
+        private static int SearchTier(DockIconViewModel vm, string filter) =>
+            Math.Min(MatchTier(vm.Name, filter), KeywordTier(vm, filter));
+
+        /// <summary>Right-click a search result → Hide from search. It stays hidden
+        /// until Settings → Search → Manage brings it back.</summary>
+        private void HideFromSearch_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not MenuItem { Tag: DockIconViewModel vm } || !vm.CanHideFromSearch)
+                return;
+            string target = vm.Model.TargetPath ?? string.Empty;
+            if (target.Length == 0)
+                return;
+            if (!_config.HiddenFromSearch.Any(h => string.Equals(h.Target, target, StringComparison.OrdinalIgnoreCase)))
+                _config.HiddenFromSearch.Add(new HiddenSearchItem { Name = vm.Name, Target = target });
+            PersistConfig();
+
+            string filter = SearchBox.Text.Trim();
+            if (!string.IsNullOrEmpty(filter))
+                RenderSearchResults(filter, _lastInstalledApps);
         }
 
         /// <summary>Wraps an installed-but-not-pinned app as a transient, launchable
@@ -4012,8 +4139,13 @@ namespace StartDock.Views
 
         private void RemoveIcon_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not MenuItem { Tag: DockIconViewModel vm })
-                return;
+            if (sender is MenuItem { Tag: DockIconViewModel vm })
+                RemoveTile(vm);
+        }
+
+        /// <summary>Right-click → Remove from StartDock, or Delete on a selected tile.</summary>
+        private void RemoveTile(DockIconViewModel vm)
+        {
 
             // A search result isn't pinned — there's nothing to remove. This menu item
             // is hidden for these anyway; the check is just cheap insurance.
@@ -4111,7 +4243,14 @@ namespace StartDock.Views
         /// Only the name shown in StartDock changes, never the app itself.</summary>
         private void RenameTile_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not MenuItem { Tag: DockIconViewModel vm } || !vm.CanCustomize)
+            if (sender is MenuItem { Tag: DockIconViewModel vm })
+                RenameTile(vm);
+        }
+
+        /// <summary>Right-click → Rename, or F2 on a selected tile.</summary>
+        private void RenameTile(DockIconViewModel vm)
+        {
+            if (!vm.CanCustomize)
                 return;
 
             _dialogOpen = true; // keep the dock open while the dialog has focus
@@ -4158,6 +4297,7 @@ namespace StartDock.Views
                 if (model.Name != dialog.TileName)
                     model.Renamed = true;
                 model.Name = dialog.TileName;
+                model.Keywords = dialog.Keywords;
                 model.TargetPath = dialog.Target;
                 model.Arguments = dialog.Arguments;
                 model.WorkingDirectory = dialog.StartIn;
@@ -4376,24 +4516,119 @@ namespace StartDock.Views
             var items = new List<(string Name, string Target)>();
             if (e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] paths)
             {
-                foreach (string path in paths)
-                {
-                    if (Directory.Exists(path))
-                    {
-                        string name = Path.GetFileName(path.TrimEnd('\\'));
-                        items.Add((string.IsNullOrEmpty(name) ? path : name, path));
-                    }
-                    else if (File.Exists(path))
-                    {
-                        items.Add((Path.GetFileNameWithoutExtension(path), path));
-                    }
-                }
+                items.AddRange(ItemsFromPaths(paths));
             }
             else if (DroppedUrl(e) is { } url && AddWebsiteDialog.Normalize(url) is { } uri)
             {
                 items.Add((AddWebsiteDialog.NameFor(uri), uri.AbsoluteUri));
             }
+            return PinItems(items, category, index);
+        }
 
+        /// <summary>Name and target for each file or folder that exists.</summary>
+        private static IEnumerable<(string Name, string Target)> ItemsFromPaths(IEnumerable<string> paths)
+        {
+            foreach (string path in paths)
+            {
+                if (Directory.Exists(path))
+                {
+                    string name = Path.GetFileName(path.TrimEnd('\\'));
+                    yield return (string.IsNullOrEmpty(name) ? path : name, path);
+                }
+                else if (File.Exists(path))
+                {
+                    yield return (Path.GetFileNameWithoutExtension(path), path);
+                }
+            }
+        }
+
+        /// <summary>File Explorer → right-click → "Pin to StartDock" (see
+        /// ExplorerMenuService): pins it at the end of the first category — even if
+        /// it's already pinned, since some people want it twice — then opens the dock
+        /// with the new tile selected, so it's easy to spot (and to drag elsewhere, or
+        /// press Delete). Accidental copies can be cleared in one go with right-click
+        /// → Remove duplicate tiles… (RemoveDuplicates_Click).</summary>
+        public void PinPaths(IEnumerable<string> paths)
+        {
+            var items = ItemsFromPaths(paths).ToList();
+            DockIconViewModel? added = null;
+            if (items.Count > 0)
+            {
+                var category = TargetCategoryForNewIcon();
+                int before = category.Icons.Count;
+                if (PinItems(items, category, before) > 0)
+                    added = category.Icons[^1];
+            }
+            ShowDock();
+            if (added != null)
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    FocusTile(added);
+                    if (FindHostingItemsControl(added) is ItemsControl host
+                        && host.ItemContainerGenerator.ContainerFromItem(added) is FrameworkElement container)
+                        container.BringIntoView();
+                }), DispatcherPriority.Loaded);
+            }
+        }
+
+        /// <summary>Right-click an empty part of the dock → Remove duplicate tiles…:
+        /// finds tiles that are exact copies — same name, same target, same
+        /// Properties settings — and, after asking, removes all but the first of
+        /// each. Tiles that differ in any of those (two versions of an app with
+        /// different arguments, say) are left alone. Tiles inside folders aren't
+        /// touched.</summary>
+        private void RemoveDuplicates_Click(object sender, RoutedEventArgs e)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var extras = new List<(CategoryViewModel Category, DockIconViewModel Tile)>();
+            foreach (var category in _categories)
+            {
+                foreach (var tile in category.Icons)
+                {
+                    if (tile.IsFolder)
+                        continue;
+                    var m = tile.Model;
+                    string key = string.Join("\u0001", m.Name, m.TargetPath, m.Arguments, m.WorkingDirectory,
+                        m.RunAsAdmin ? "admin" : string.Empty);
+                    if (!seen.Add(key))
+                        extras.Add((category, tile));
+                }
+            }
+
+            if (extras.Count == 0)
+            {
+                _dialogOpen = true;
+                try { ConfirmDialog.Tell(this, "Remove duplicate tiles", "No duplicate tiles found.", "Every pinned tile is different."); }
+                finally { _dialogOpen = false; Activate(); }
+                return;
+            }
+
+            string names = string.Join(", ", extras.Select(x => x.Tile.Name).Distinct(StringComparer.OrdinalIgnoreCase).Take(5));
+            if (extras.Select(x => x.Tile.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 5)
+                names += ", …";
+            if (!AskFirst("Remove duplicate tiles",
+                    $"Remove {extras.Count} duplicate {(extras.Count == 1 ? "tile" : "tiles")}?",
+                    $"The first copy of each stays where it is. Duplicates of: {names}.", "Remove"))
+                return;
+
+            foreach (var (category, tile) in extras)
+            {
+                category.Model.Icons.Remove(tile.Model);
+                category.Icons.Remove(tile);
+                _searchResults.Remove(tile);
+                // Only delete the icon file when no remaining tile uses the same one.
+                if (!_categories.SelectMany(c => c.Icons).Any(v => string.Equals(v.Model.CachedIconPath, tile.Model.CachedIconPath, StringComparison.OrdinalIgnoreCase)))
+                    DeleteCachedIcon(tile);
+            }
+            RefreshEmptyState();
+            PersistConfig();
+        }
+
+        /// <summary>Pins <paramref name="items"/> into <paramref name="category"/> at
+        /// <paramref name="index"/>, in order. Returns how many were pinned.</summary>
+        private int PinItems(List<(string Name, string Target)> items, CategoryViewModel category, int index)
+        {
             int at = Math.Max(0, Math.Min(index, category.Icons.Count));
             foreach (var (name, target) in items)
             {
@@ -5223,7 +5458,8 @@ namespace StartDock.Views
                 lost.Add("its name");
             if ((model.CachedIconPath ?? string.Empty).Contains("-custom-", StringComparison.OrdinalIgnoreCase))
                 lost.Add("its custom icon");
-            if (!string.IsNullOrWhiteSpace(model.Arguments) || !string.IsNullOrWhiteSpace(model.WorkingDirectory) || model.RunAsAdmin)
+            if (!string.IsNullOrWhiteSpace(model.Arguments) || !string.IsNullOrWhiteSpace(model.WorkingDirectory) || model.RunAsAdmin
+                || !string.IsNullOrWhiteSpace(model.Keywords))
                 lost.Add("its Properties settings");
             if (lost.Count == 0)
                 return true;
@@ -5367,6 +5603,54 @@ namespace StartDock.Views
             finally
             {
                 _dialogOpen = false;
+            }
+        }
+
+        /// <summary>After the first-run welcome (App.ShowWelcome): takes on its
+        /// choices, pins the most used apps if that was chosen, then opens the dock
+        /// so you can see the result.</summary>
+        public async void ApplyWelcome(AppConfig updated, bool pinMostUsed)
+        {
+            ApplyConfigFromSettings(updated);
+            if (pinMostUsed)
+            {
+                try { await PinMostUsedAppsAsync(); }
+                catch { /* an empty dock is fine too */ }
+            }
+            ShowDock();
+        }
+
+        /// <summary>Welcome → "The apps I use most": pins up to 12 of the apps
+        /// opened most (the same launch history search ranking uses — see
+        /// AppUsageService), most used first, into the first category.</summary>
+        private async Task PinMostUsedAppsAsync()
+        {
+            var apps = await InstalledAppsCache.GetAppsAsync();
+            var usage = await Task.Run(() => AppUsageService.GetUsage());
+
+            var picks = apps
+                .Where(a => AppKind.IsRealApp(a.Model))
+                .Select(a =>
+                {
+                    string key = AppUsageService.KeyFor("shell:AppsFolder\\" + a.Model.AppId);
+                    double score = 0;
+                    if (usage.TryGetValue(key, out var u) && u.Count > 0)
+                    {
+                        double days = (DateTime.UtcNow - u.LastUsedUtc).TotalDays;
+                        score = u.Count * (days <= 7 ? 1.0 : days <= 30 ? 0.5 : 0.25);
+                    }
+                    return (App: a, Score: score);
+                })
+                .Where(x => x.Score > 0)
+                .OrderByDescending(x => x.Score)
+                .Take(12)
+                .ToList();
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (app, _) in picks)
+            {
+                if (seen.Add(app.Model.AppId))
+                    AddIcon(app.Model.Name, $"shell:AppsFolder\\{app.Model.AppId}", app.CachedIconPath);
             }
         }
 

@@ -37,6 +37,10 @@ namespace StartDock.Models
         /// first when it was customized — see MainWindow.RemoveIcon_Click.</summary>
         public bool Renamed { get; set; }
 
+        /// <summary>Extra words that find this tile in search (Properties → Search
+        /// keywords), separated by spaces or commas — "ps" for PowerShell, say.</summary>
+        public string Keywords { get; set; } = string.Empty;
+
         /// <summary>
         /// Path to the cached, pre-extracted icon image (PNG) under the app data folder.
         /// Re-extracted automatically if missing. Unused for a folder tile — its tile

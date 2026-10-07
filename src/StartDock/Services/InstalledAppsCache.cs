@@ -176,7 +176,7 @@ namespace StartDock.Services
                 await throttle.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    var (path, image) = await Task.Run(() => LoadIcon(vm.Model.AppId, iconExtractor)).ConfigureAwait(false);
+                    var (path, image) = await StaWorker.Run(() => LoadIcon(vm.Model.AppId, iconExtractor)).ConfigureAwait(false);
                     if (image == null || dispatcher == null)
                         return;
 
@@ -251,7 +251,7 @@ namespace StartDock.Services
         /// Returns the new icon, or null if it still couldn't be extracted.</summary>
         public static async Task<ImageSource?> RefreshIconAsync(string appId, IconExtractor iconExtractor)
         {
-            var (path, image) = await Task.Run(() => LoadIcon(appId, iconExtractor, forceExtract: true));
+            var (path, image) = await StaWorker.Run(() => LoadIcon(appId, iconExtractor, forceExtract: true));
 
             var vm = _apps?.FirstOrDefault(a => string.Equals(a.Model.AppId, appId, StringComparison.OrdinalIgnoreCase));
             if (vm != null && image != null)

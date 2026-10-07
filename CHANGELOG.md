@@ -4,6 +4,21 @@
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
 
+## 0.9.5
+
+- Welcome screen the first time StartDock runs: choose how to open it, where it opens, its look, the icon direction and alignment, and start with your most used apps already pinned (or an empty dock).
+- Export and import your setup: Settings → Startup → Export… saves your settings and pinned apps, with their icons, to one file. Import… brings them back, on this PC or another one.
+- Settings → Startup → Reset… starts over like a new install (your current setup is backed up first).
+- Hide from search: right-click a search result you never want to see. Settings → Search → Manage… brings it back.
+- Search keywords: right-click a tile → Properties... → Search keywords, so a short word like "ps" finds it.
+- Fixed: some apps showed a blank page icon in search, Recently added and the Add window, and Refresh icon didn't fix it there (only after pinning). Icons are now read the way Windows expects, and Refresh icon works on search results.
+- New Settings → Look → Border color: Match theme, White or Black, for the thin border as well as Bold (the menu bar divider follows it).
+- "Pin to StartDock" in File Explorer's right-click menu, for files and folders. Off by default: turn it on in Settings → Startup. (On Windows 11 it's under "Show more options".) The dock opens with the new tile selected.
+- Right-click an empty part of the dock → Remove duplicate tiles… removes exact copies of a tile in one go (the first copy of each stays).
+- Hover over a tile whose name is cut off to see the whole name.
+- Keyboard: select a tile with the arrow keys, then F2 renames it and Delete removes it.
+- Settings now has "Report a problem" and "GitHub" links next to Tips. Reports include StartDock's recent errors (with your user name taken out), so problems are easier to fix.
+
 ## 0.9.4.1
 
 - Settings: "Save" is now "Save & Close". Closing Settings any other way with changes you haven't saved asks whether to save them or close without saving.

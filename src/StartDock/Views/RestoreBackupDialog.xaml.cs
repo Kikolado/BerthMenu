@@ -23,7 +23,7 @@ namespace StartDock.Views
             BackupsList.ItemsSource = backups.Select(b => new Row(
                 b,
                 Describe(b.Taken),
-                (b.BeforeRestore ? "Saved before restoring a backup · " : string.Empty)
+                (b.Reason != null ? $"Saved {b.Reason} · " : string.Empty)
                     + Plural(b.Categories, "category", "categories") + ", " + Plural(b.Tiles, "app", "apps")))
                 .ToList();
         }

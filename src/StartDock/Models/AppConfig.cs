@@ -19,6 +19,14 @@ namespace StartDock.Models
         Custom
     }
 
+    /// <summary>See AppConfig.BorderColor.</summary>
+    public enum BorderColorMode
+    {
+        Theme,
+        White,
+        Black,
+    }
+
     /// <summary>Light or dark visual theme for the dock chrome.</summary>
     public enum ThemeMode
     {
@@ -352,6 +360,11 @@ namespace StartDock.Models
         /// See Services/RunningApps.</summary>
         public bool ShowRunningIndicator { get; set; } = false;
 
+        /// <summary>Things hidden from search with right-click → Hide from search
+        /// (installed apps, Windows tools, files). Settings → Search → Manage brings
+        /// them back. Pinned tiles always show.</summary>
+        public List<HiddenSearchItem> HiddenFromSearch { get; set; } = new();
+
         public WebSearchEngine WebSearchEngine { get; set; } = WebSearchEngine.Google;
 
         /// <summary>Where the dock appears on screen — see DockPosition.</summary>
@@ -435,6 +448,11 @@ namespace StartDock.Models
         /// enums serialize by position, and a bool-to-enum type change would break
         /// on the old value).</summary>
         public bool HideBorder { get; set; } = false;
+
+        /// <summary>The outline's color (Settings → Look → Border color): Theme gives
+        /// the normal soft gray (white or black when Bold, by theme); White/Black pin
+        /// it, at either thickness. The menu bar divider follows it too.</summary>
+        public BorderColorMode BorderColor { get; set; } = BorderColorMode.Theme;
 
         /// <summary>When true, the menu bar (user avatar, task manager, volume mixer,
         /// file explorer, settings, power — see MainWindow.xaml's MenuBarRow) sits at
@@ -589,6 +607,11 @@ namespace StartDock.Models
         /// <summary>Launch StartDock's background hook/tray process at sign-in.</summary>
         public bool AutoStart { get; set; } = true;
 
+        /// <summary>Adds "Pin to StartDock" to File Explorer's right-click menu for
+        /// files and folders (Settings → Startup). Off by default — see
+        /// Services/ExplorerMenuService.</summary>
+        public bool ExplorerPinMenu { get; set; } = false;
+
         /// <summary>When true, StartDock relaunches itself elevated (UAC prompt) any
         /// time it starts without admin rights — see App.OnStartup. Useful for the
         /// same reason the tray's "Restart as Admin" exists (hooks/overlay reaching
@@ -606,5 +629,13 @@ namespace StartDock.Models
         // ConfigService.Load's migration).
         public const int SchemaVersion = 2;
         public int Version { get; set; } = SchemaVersion;
+    }
+
+    /// <summary>One entry in AppConfig.HiddenFromSearch: what it opens (matched
+    /// against search results) and its name (for the Manage list).</summary>
+    public class HiddenSearchItem
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Target { get; set; } = string.Empty;
     }
 }

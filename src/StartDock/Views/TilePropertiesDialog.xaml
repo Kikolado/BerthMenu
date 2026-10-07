@@ -14,6 +14,11 @@
         <TextBlock Text="Name" Margin="0,0,0,4"/>
         <TextBox x:Name="NameBox" Padding="6,4" Style="{StaticResource ThemedTextBox}"/>
 
+        <TextBlock Text="Search keywords" Margin="0,12,0,4"/>
+        <TextBox x:Name="KeywordsBox" Padding="6,4" Style="{StaticResource ThemedTextBox}"/>
+        <TextBlock Margin="0,4,0,0" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}"
+                   Text="Extra words that find this tile in search, like &quot;ps&quot; for PowerShell. Separate them with spaces or commas."/>
+
         <TextBlock Text="Opens" Margin="0,12,0,4"/>
         <Grid>
             <Grid.ColumnDefinitions>
