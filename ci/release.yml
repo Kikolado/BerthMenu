@@ -1,7 +1,7 @@
 # (The copy GitHub uses is .github/workflows/release.yml; setup-github.ps1 and
 # release.ps1 copy it there from ci/release.yml.)
 #
-# Builds the StartDock installer on GitHub's own Windows machines and publishes
+# Builds the BerthMenu installer on GitHub's own Windows machines and publishes
 # it as a GitHub release — so a release doesn't need your PC at all.
 #
 # Runs when a version tag like v0.9.0 is pushed (release.ps1 does that for you).
@@ -32,10 +32,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
-          [xml]$proj = Get-Content src/StartDock/StartDock.csproj
+          [xml]$proj = Get-Content src/BerthMenu/BerthMenu.csproj
           $version = $proj.SelectSingleNode('//Version').InnerText
           $tag = '${{ github.ref_name }}'.TrimStart('v')
-          if ($version -ne $tag) { throw "Tag v$tag doesn't match <Version>$version</Version> in StartDock.csproj." }
+          if ($version -ne $tag) { throw "Tag v$tag doesn't match <Version>$version</Version> in BerthMenu.csproj." }
 
       - name: Make sure Inno Setup is installed
         shell: pwsh
@@ -51,7 +51,7 @@ jobs:
       - name: Fingerprint the installer (SHA-256)
         shell: pwsh
         run: |
-          $exe = Get-ChildItem installer/Output/StartDock-Setup-*.exe | Select-Object -First 1
+          $exe = Get-ChildItem installer/Output/BerthMenu-Setup-*.exe | Select-Object -First 1
           $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
           "$hash  $($exe.Name)" | Set-Content -Encoding ascii "$($exe.FullName).sha256"
           "INSTALLER=$($exe.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
@@ -59,7 +59,7 @@ jobs:
       - name: Keep the installer as a downloadable file
         uses: actions/upload-artifact@v4
         with:
-          name: StartDock-installer
+          name: BerthMenu-installer
           path: installer/Output/
 
       - name: Publish the release
@@ -69,7 +69,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Release notes: this version's section of CHANGELOG.md (the same list
-          # StartDock shows in its "What's new" window), or GitHub's own list of
+          # BerthMenu shows in its "What's new" window), or GitHub's own list of
           # commits if the changelog has no section for it.
           $version = '${{ github.ref_name }}'.TrimStart('v')
           $notes = @()
@@ -86,8 +86,8 @@ jobs:
           if ($text) {
             Set-Content -Path release-notes.md -Value $text -Encoding utf8
             gh release create '${{ github.ref_name }}' "$env:INSTALLER" "$env:INSTALLER.sha256" `
-              --title "StartDock ${{ github.ref_name }}" --notes-file release-notes.md
+              --title "BerthMenu ${{ github.ref_name }}" --notes-file release-notes.md
           } else {
             gh release create '${{ github.ref_name }}' "$env:INSTALLER" "$env:INSTALLER.sha256" `
-              --title "StartDock ${{ github.ref_name }}" --generate-notes
+              --title "BerthMenu ${{ github.ref_name }}" --generate-notes
           }

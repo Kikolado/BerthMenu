@@ -1,0 +1,59 @@
+<Window x:Class="BerthMenu.Views.RestoreBackupDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Restore a backup"
+        Width="420" Height="420"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource DockBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}">
+    <!-- Settings → Startup → "Restore a backup…": the automatic backups kept by
+         ConfigService, newest first. Restoring restarts BerthMenu. -->
+    <Window.Resources>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="8,6">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TileHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TilePressedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Foreground="{DynamicResource SecondaryTextBrush}"
+                   Text="Pick a backup to go back to. BerthMenu restarts with it. Your current settings are backed up first, so you can undo this."/>
+        <ListBox x:Name="BackupsList" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                 SelectionChanged="BackupsList_SelectionChanged" MouseDoubleClick="BackupsList_MouseDoubleClick">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel>
+                        <TextBlock Text="{Binding Title}"/>
+                        <TextBlock Text="{Binding Details}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Cancel" Width="90" Padding="0,2,0,4" Margin="0,0,8,0" IsCancel="True"/>
+            <Button x:Name="RestoreButton" Content="Restore" Width="90" Padding="0,2,0,4" IsDefault="True" IsEnabled="False" Click="Restore_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

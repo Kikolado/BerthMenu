@@ -1,9 +1,9 @@
-# Publishes a new StartDock release.
+# Publishes a new BerthMenu release.
 #
 # Saves the current code to GitHub and tags it with the version in
-# src\StartDock\StartDock.csproj (<Version>). GitHub then builds the installer
+# src\BerthMenu\BerthMenu.csproj (<Version>). GitHub then builds the installer
 # on its own machines and publishes the release — see .github\workflows\release.yml.
-# Your PC doesn't build anything, and StartDock can keep running.
+# Your PC doesn't build anything, and BerthMenu can keep running.
 #
 # Run from PowerShell in this folder:
 #   powershell -ExecutionPolicy Bypass -File .\release.ps1
@@ -34,13 +34,13 @@ function Check($what) {
     if ($LASTEXITCODE -ne 0) { Write-Host "Stopped: $what failed (see above)." -ForegroundColor Red; exit 1 }
 }
 
-[xml]$proj = Get-Content "src\StartDock\StartDock.csproj"
+[xml]$proj = Get-Content "src\BerthMenu\BerthMenu.csproj"
 $version = $proj.SelectSingleNode('//Version').InnerText
 $tag = "v$version"
 
 git fetch --tags --quiet; Check "Checking existing releases"
 if (git tag --list $tag) {
-    Write-Host "Stopped: $tag was already released. Raise <Version> in StartDock.csproj first." -ForegroundColor Red
+    Write-Host "Stopped: $tag was already released. Raise <Version> in BerthMenu.csproj first." -ForegroundColor Red
     exit 1
 }
 
@@ -51,7 +51,7 @@ Copy-Item ci\release.yml .github\workflows\release.yml -Force
 git add -A; Check "Adding changes"
 git diff --cached --quiet
 if ($LASTEXITCODE -ne 0) {
-    git commit -m "StartDock $version"; Check "Saving this version"
+    git commit -m "BerthMenu $version"; Check "Saving this version"
 }
 
 git tag $tag; Check "Tagging $tag"

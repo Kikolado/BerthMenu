@@ -1,0 +1,60 @@
+<Window x:Class="BerthMenu.Views.HiddenSearchDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Hidden from search"
+        Width="420" Height="400"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource DockBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}">
+    <!-- Settings → Search → Manage…: what was hidden with right-click → Hide from
+         search. "Show again" puts the selected ones back (saved with Settings). -->
+    <Window.Resources>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="8,5">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TileHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource TilePressedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="{DynamicResource SecondaryTextBrush}"
+                   Text="These don't show up in search. Select any you want back and click Show again."/>
+        <ListBox x:Name="HiddenList" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                 SelectionMode="Extended" SelectionChanged="HiddenList_SelectionChanged">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel>
+                        <TextBlock Text="{Binding Name}"/>
+                        <TextBlock Text="{Binding Target}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="ShowAgainButton" Content="Show again" MinWidth="90" Padding="12,2,12,4" Margin="0,0,8,0"
+                    IsEnabled="False" Click="ShowAgain_Click"/>
+            <Button Content="Close" MinWidth="80" Padding="12,2,12,4" IsCancel="True" IsDefault="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,10 +1,10 @@
-# Builds the StartDock installer in one step:
-#   1. publishes StartDock.exe (self-contained, single file) to .\publish
-#   2. compiles installer\StartDock.iss with Inno Setup
-# Output: .\installer\Output\StartDock-Setup-<version>.exe
+# Builds the BerthMenu installer in one step:
+#   1. publishes BerthMenu.exe (self-contained, single file) to .\publish
+#   2. compiles installer\BerthMenu.iss with Inno Setup
+# Output: .\installer\Output\BerthMenu-Setup-<version>.exe
 #
 # Needs Inno Setup 6 once:  winget install JRSoftware.InnoSetup
-# Close any running StartDock first, or the publish step can't replace the .exe.
+# Close any running BerthMenu first, or the publish step can't replace the .exe.
 #
 # Run from PowerShell:  .\build-installer.ps1
 # (If scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\build-installer.ps1)
@@ -12,8 +12,8 @@
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 
-Write-Host "Publishing StartDock..." -ForegroundColor Cyan
-dotnet publish "$root\src\StartDock\StartDock.csproj" -c Release -r win-x64 --self-contained true `
+Write-Host "Publishing BerthMenu..." -ForegroundColor Cyan
+dotnet publish "$root\src\BerthMenu\BerthMenu.csproj" -c Release -r win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o "$root\publish"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
 
@@ -28,7 +28,7 @@ if (-not $iscc) {
 }
 
 Write-Host "Building installer..." -ForegroundColor Cyan
-& $iscc "$root\installer\StartDock.iss"
+& $iscc "$root\installer\BerthMenu.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed." }
 
 Write-Host ""

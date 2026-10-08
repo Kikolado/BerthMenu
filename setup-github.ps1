@@ -1,4 +1,4 @@
-# One-time setup: puts this folder on GitHub as a public "StartDock" repository.
+# One-time setup: puts this folder on GitHub as a public "BerthMenu" repository.
 #
 # Needs, once:  winget install GitHub.cli   then   gh auth login
 #               winget install --id Git.Git -e
@@ -65,9 +65,9 @@ if (-not (git config user.email)) { git config user.email "$id+$login@users.nore
 git add -A; Check "Adding files"
 git commit -m "StartDock 0.8"; Check "Saving the first version"
 
-gh repo create StartDock --public --source . --remote origin --push `
+gh repo create BerthMenu --public --source . --remote origin --push `
     --description "A customizable Start Menu replacement for Windows 11."
 Check "Creating the GitHub repository"
 
 Write-Host ""
-Write-Host "Done: https://github.com/$login/StartDock" -ForegroundColor Green
+Write-Host "Done: https://github.com/$login/BerthMenu" -ForegroundColor Green

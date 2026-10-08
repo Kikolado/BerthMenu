@@ -1,8 +1,18 @@
-# What's new in StartDock
+# What's new in BerthMenu
 
-<!-- Shown inside StartDock (tray → What's new, Settings → What's new) and used as
+<!-- Shown inside BerthMenu (tray → What's new, Settings → What's new) and used as
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
+
+## 0.9.8
+
+- StartDock is now BerthMenu – for Windows. The old name was too close to other products (Stardock's Start11 among them). Settings exports are now .berthmenu files.
+- Start as Admin no longer asks for permission every time BerthMenu starts. Windows asks once, when you turn it on and save, and after that BerthMenu starts as Admin on its own. Restart as Admin doesn't ask either. (Uninstalling removes this again.)
+- No more "are you sure?" when removing a tile, folder, category or duplicate tiles: they're removed right away, and Undo (or Ctrl+Z) puts everything back.
+- Keyboard: the tile you're on with the arrow keys now has a clear outline in the accent color, and so do the menu bar buttons. Tab goes from the search box to the tiles (then use the arrow keys) and on to the menu bar.
+- Screen readers now read each tile's name, the menu bar buttons' names and the search box, instead of nothing or an icon character.
+- New: Settings → Layout → Animation → Fade (fast), the same fade in half the time.
+- Settings → Startup: the last backup's date no longer gets cut off (hover over it for the full date), and the text in buttons is centered instead of sitting low.
 
 ## 0.9.7
 

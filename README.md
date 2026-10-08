@@ -1,30 +1,31 @@
-# StartDock
+# BerthMenu – for Windows
 
-A clean, customizable replacement for the Windows Start menu. No "Recommended"
-section, no ads, no apps you didn't ask for: just the apps, folders, files and
-websites you pin, arranged the way you like, plus fast search.
+Your apps, search and (soon) widgets, one key away. No "Recommended" section,
+no ads, no apps you didn't ask for: just the apps, folders, files and websites
+you pin, arranged the way you like, plus fast search.
 
-Press the **Windows key** (or click the taskbar **Start button**) and StartDock
-opens instead of the Windows Start menu.
+Use it as your Start menu (the **Windows key** and the taskbar **Start button**
+open BerthMenu instead), or give it a shortcut of its own and keep it as a
+launcher next to Windows' menu.
 
 <p align="center">
-  <img src="docs/images/dock-categories.png" alt="StartDock with Pinned, Games and Production categories" width="420">
+  <img src="docs/images/dock-categories.png" alt="BerthMenu with Pinned, Games and Production categories" width="420">
   &nbsp;
-  <img src="docs/images/dock-icons-only.png" alt="A see-through StartDock showing only floating icons" width="420">
+  <img src="docs/images/dock-icons-only.png" alt="A see-through BerthMenu showing only floating icons" width="420">
 </p>
 
 ## Download
 
-Get the latest **StartDock-Setup-x.x.x.exe** from the
-[Releases page](https://github.com/Kikolado/StartDock/releases/latest) and run it.
+Get the latest **BerthMenu-Setup-x.x.x.exe** from the
+[Releases page](https://github.com/Kikolado/BerthMenu/releases/latest) and run it.
 
 - Windows 10 (1809 or later) or Windows 11, 64-bit.
 - No administrator rights needed, and nothing else to install first.
-- StartDock updates itself: Settings → Startup → **Update automatically**.
-- Windows SmartScreen may warn the first time, because StartDock isn't
+- BerthMenu updates itself: Settings → Startup → **Update automatically**.
+- Windows SmartScreen may warn the first time, because BerthMenu isn't
   code-signed. Click **More info → Run anyway**.
 
-The first time it runs, a short welcome screen lets you pick how StartDock
+The first time it runs, a short welcome screen lets you pick how BerthMenu
 opens, where it sits on screen and how it looks, and can pin your most used apps
 for you.
 
@@ -62,7 +63,7 @@ for you.
 - **Menu bar:** top or bottom, choose which buttons it shows, or hide it.
 
 <p align="center">
-  <img src="docs/images/settings.png" alt="StartDock Settings" width="700">
+  <img src="docs/images/settings.png" alt="BerthMenu Settings" width="700">
 </p>
 
 ## Features
@@ -72,7 +73,7 @@ for you.
 - Pin apps from the full app list, any file, folder or shortcut, Remote Desktop
   connections (.rdp) and websites (with the site's own icon).
 - Drag files, folders or a browser link onto the dock to pin them.
-- Optional **Pin to StartDock** in File Explorer's right-click menu.
+- Optional **Pin to BerthMenu** in File Explorer's right-click menu.
 - Group tiles into **categories** you can rename, reorder and fold away, and
   drop one tile on another to make a **folder**.
 - Click a pinned folder (like Downloads) to look inside it right in the dock.
@@ -114,18 +115,18 @@ Settings. **What's new** lists the changes in each version.
 ## How it works
 
 Windows doesn't let other apps replace its Start menu, and tools that do it by
-patching `explorer.exe` tend to break with Windows updates. StartDock doesn't
+patching `explorer.exe` tend to break with Windows updates. BerthMenu doesn't
 touch Explorer at all. It runs as an ordinary app in the system tray and:
 
-1. Notices a Windows key press on its own and opens StartDock instead.
+1. Notices a Windows key press on its own and opens BerthMenu instead.
    Shortcuts like Win+D, Win+E or Win+Shift+S keep working as usual.
 2. Catches clicks on the taskbar Start button (on every monitor that has one).
 
-Exit StartDock from its tray icon and the Windows key and Start button go back to
+Exit BerthMenu from its tray icon and the Windows key and Start button go back to
 normal right away. If you'd rather keep the Windows key for Windows, set
-StartDock to open with **Shift + Windows key** or a shortcut of your own.
+BerthMenu to open with **Shift + Windows key** or a shortcut of your own.
 
-Your settings and pins are stored in `%AppData%\StartDock`.
+Your settings and pins are stored in `%AppData%\BerthMenu`.
 
 ## Known limitations
 
@@ -133,14 +134,16 @@ Your settings and pins are stored in `%AppData%\StartDock`.
   administrator has focus, Windows doesn't let normal apps see the Windows key,
   so the Windows Start menu may open instead. If that bothers you, turn on
   Settings → Startup → **Start as Admin** (or **Restart as Admin** for now).
+  Windows asks for permission once; after that BerthMenu starts as Admin on
+  its own.
 - **Task Manager** often runs as administrator too, so the first Windows key
   press after using it can open the Windows Start menu. The next press works.
 - On some Windows 11 setups, taskbars on secondary monitors have no Start button
-  for StartDock to catch. The Windows key still works there.
+  for BerthMenu to catch. The Windows key still works there.
 
 ## Uninstalling
 
-Uninstall StartDock from Windows Settings → Apps like any other app. It asks
+Uninstall BerthMenu from Windows Settings → Apps like any other app. It asks
 whether to keep your settings and pins, in case you reinstall later.
 
 To turn it off without uninstalling, right-click the tray icon → **Exit**, and
@@ -149,40 +152,40 @@ untick Settings → Startup → **Start when I sign in**.
 ## Found a problem?
 
 Use **Report a problem** in the tray menu or at the bottom of Settings. It opens
-a [GitHub issue](https://github.com/Kikolado/StartDock/issues) with your
-StartDock and Windows versions filled in.
+a [GitHub issue](https://github.com/Kikolado/BerthMenu/issues) with your
+BerthMenu and Windows versions filled in.
 
 ## Building from source
 
 You need **Visual Studio 2022** with the **.NET desktop development** workload,
 or the **.NET 8 SDK**.
 
-- **Visual Studio:** open `StartDock.sln`, pick the `x64` platform and press F5.
+- **Visual Studio:** open `BerthMenu.sln`, pick the `x64` platform and press F5.
 - **Command line:**
   ```
-  cd src/StartDock
+  cd src/BerthMenu
   dotnet build -c Release -p:Platform=x64
   ```
 
-Exit StartDock (tray icon → Exit) before rebuilding, or the build can't replace
-the running `StartDock.exe`.
+Exit BerthMenu (tray icon → Exit) before rebuilding, or the build can't replace
+the running `BerthMenu.exe`.
 
 **Releases:** the version lives only in `<Version>` in
-`src/StartDock/StartDock.csproj`, and the notes in `CHANGELOG.md` (shown in the
+`src/BerthMenu/BerthMenu.csproj`, and the notes in `CHANGELOG.md` (shown in the
 app as What's new, and used as the GitHub release notes). Double-click
 `installer\Publish.cmd` to build the installer on your PC
-(`installer\Output\StartDock-Setup-<version>.exe`) and/or publish: it tags the
+(`installer\Output\BerthMenu-Setup-<version>.exe`) and/or publish: it tags the
 version and GitHub Actions builds the installer and creates the release.
 
 ### Project layout
 
 ```
-StartDock.sln
+BerthMenu.sln
 CHANGELOG.md                     Release notes (What's new in the app, GitHub release notes)
 installer/                       Inno Setup script and Publish.cmd
 ci/release.yml                   GitHub Actions release workflow
 docs/images/                     Screenshots for this page
-src/StartDock/
+src/BerthMenu/
   App.xaml(.cs)                  Startup, single instance, tray, Explorer pin hand-off
   Models/                        AppConfig (everything in config.json), Category, DockIcon
   Services/
@@ -194,7 +197,7 @@ src/StartDock/
     AppLauncher, ShortcutResolver          Opening tiles (arguments, run as admin)
     FileSearchService, Calculator, RunCommand, WindowsSettingsCatalog   Search
     RecentFilesService, AppUsageService, RunningApps    Recent sections, most used, open apps
-    ExplorerMenuService          "Pin to StartDock" in File Explorer
+    ExplorerMenuService          "Pin to BerthMenu" in File Explorer
     JumpListService              An app's recent files, for its right-click menu
     Updater, Changelog           Updates, What's new, Tips, Report a problem
     ...                          Power, theme, tray, autostart, monitors, Win32 calls
