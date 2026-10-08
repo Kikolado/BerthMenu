@@ -4,6 +4,13 @@
      the GitHub release notes. Each version is a "## <version>" heading followed by
      "- " lines; add the newest version at the top. -->
 
+## 1.0
+
+- New logo: a B tile and an M tile docking with two others on a pier, in harbor teal. It's the program icon, the tray icon, the installer's and every BerthMenu window's.
+- BerthMenu is on winget: `winget install Kikolado.BerthMenu`.
+- BerthMenu now has an open-source license (MIT).
+- Removed the one-time move over from StartDock (settings, startup entry, menu item and installer cleanup).
+
 ## 0.9.8
 
 - StartDock is now BerthMenu – for Windows. The old name was too close to other products (Stardock's Start11 among them). Settings exports are now .berthmenu files.

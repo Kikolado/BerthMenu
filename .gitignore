@@ -10,3 +10,6 @@ installer/Output/
 
 # Files Claude saves into this folder while working
 Claude outputs/
+
+# winget manifests filled in by winget.ps1
+winget/out/

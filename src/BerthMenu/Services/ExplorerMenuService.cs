@@ -34,14 +34,6 @@ namespace BerthMenu.Services
             @"Software\Classes\Directory\shell\" + VerbKey,
         };
 
-        // The same menu item from before the rename (StartDock): removed, so it
-        // doesn't show twice or point at the old .exe.
-        private static readonly string[] OldRoots =
-        {
-            @"Software\Classes\*\shell\StartDockPin",
-            @"Software\Classes\Directory\shell\StartDockPin",
-        };
-
         private static string PipeName => "BerthMenu-Pin-" + Environment.UserName;
 
         /// <summary>Adds or removes the menu item. Re-run at every start so it points
@@ -49,10 +41,6 @@ namespace BerthMenu.Services
         public static void SetEnabled(bool enabled)
         {
             string? exe = Environment.ProcessPath;
-            foreach (string old in OldRoots)
-            {
-                try { Registry.CurrentUser.DeleteSubKeyTree(old, throwOnMissingSubKey: false); } catch { /* fine */ }
-            }
             foreach (string path in Roots)
             {
                 try

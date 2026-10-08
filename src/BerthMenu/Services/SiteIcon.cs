@@ -60,7 +60,7 @@ namespace BerthMenu.Services
                     string? ext = ExtensionFor(bytes);
                     if (ext == null)
                         continue; // HTML error page, SVG, …
-                    string path = Path.Combine(Path.GetTempPath(), $"startdock-site-{Guid.NewGuid():N}{ext}");
+                    string path = Path.Combine(Path.GetTempPath(), $"berthmenu-site-{Guid.NewGuid():N}{ext}");
                     await File.WriteAllBytesAsync(path, bytes);
                     return path;
                 }

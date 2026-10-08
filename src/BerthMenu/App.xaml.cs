@@ -108,8 +108,6 @@ namespace BerthMenu
                 args.Handled = true;
             };
 
-            // BerthMenu was StartDock until 0.9.8: bring its settings folder over first.
-            ConfigService.MoveFromOldName();
             _configService = new ConfigService();
             Config = _configService.Load();
 
@@ -130,10 +128,7 @@ namespace BerthMenu
                 System.Threading.Tasks.Task.Run(() =>
                 {
                     if (!AdminTaskService.IsSetUp())
-                    {
                         AdminTaskService.Create(elevated: true);
-                        AdminTaskService.DeleteOldTask(); // StartDock's, from before the rename
-                    }
                 });
 
             // Re-sync the sign-in entry with where this .exe actually lives now. It

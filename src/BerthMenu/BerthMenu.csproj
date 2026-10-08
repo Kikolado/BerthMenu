@@ -41,7 +41,7 @@
          standalone. -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.9.8</Version>
+    <Version>1.0</Version>
     <Company>Roberto Regalado</Company>
     <Product>BerthMenu</Product>
     <Description>BerthMenu - for Windows. Your apps, search and widgets, one key away.</Description>

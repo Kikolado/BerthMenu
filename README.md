@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/logo.png" alt="BerthMenu logo" width="128"></p>
+
 # BerthMenu – for Windows
 
 Your apps, search and (soon) widgets, one key away. No "Recommended" section,
@@ -24,6 +26,7 @@ Get the latest **BerthMenu-Setup-x.x.x.exe** from the
 - BerthMenu updates itself: Settings → Startup → **Update automatically**.
 - Windows SmartScreen may warn the first time, because BerthMenu isn't
   code-signed. Click **More info → Run anyway**.
+- Or install it with winget: `winget install Kikolado.BerthMenu`
 
 The first time it runs, a short welcome screen lets you pick how BerthMenu
 opens, where it sits on screen and how it looks, and can pin your most used apps
@@ -207,3 +210,7 @@ src/BerthMenu/
     ...                          Dialogs (Add, Properties, Rename, Restore backup…)
   Resources/                     Light/dark themes, styles, Tips.md, app icon
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

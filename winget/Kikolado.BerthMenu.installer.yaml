@@ -1,0 +1,31 @@
+# winget installer manifest. {VERSION}, {URL} and {SHA256} are filled in by
+# Winget.ps1 (in the folder above).
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+
+PackageIdentifier: Kikolado.BerthMenu
+PackageVersion: {VERSION}
+InstallerType: inno
+MinimumOSVersion: 10.0.17763.0
+UpgradeBehavior: install
+# The installer's AppId (installer\BerthMenu.iss) plus Inno Setup's "_is1".
+ProductCode: '{4679C4B9-DD89-497F-A522-3254024184FB}_is1'
+AppsAndFeaturesEntries:
+- DisplayName: BerthMenu
+  Publisher: Roberto Regalado
+  ProductCode: '{4679C4B9-DD89-497F-A522-3254024184FB}_is1'
+Installers:
+- Architecture: x64
+  Scope: user
+  InstallerUrl: {URL}
+  InstallerSha256: {SHA256}
+  InstallerSwitches:
+    Custom: /CURRENTUSER
+- Architecture: x64
+  Scope: machine
+  InstallerUrl: {URL}
+  InstallerSha256: {SHA256}
+  InstallerSwitches:
+    Custom: /ALLUSERS
+  ElevationRequirement: elevatesSelf
+ManifestType: installer
+ManifestVersion: 1.10.0

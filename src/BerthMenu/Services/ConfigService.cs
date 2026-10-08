@@ -25,76 +25,6 @@ namespace BerthMenu.Services
         public string BackgroundImageFolder { get; }
         public string ConfigFilePath { get; }
 
-        /// <summary>BerthMenu was called StartDock before 0.9.8, and kept its settings
-        /// in %AppData%\StartDock. The first BerthMenu start moves that folder to
-        /// %AppData%\BerthMenu and points the paths saved inside it (tile icons, the
-        /// background picture) at the new folder, so nothing is lost. Runs before
-        /// anything else reads the folder (App.OnStartup).</summary>
-        public static void MoveFromOldName()
-        {
-            try
-            {
-                string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string oldDir = Path.Combine(roaming, "StartDock");
-                string newDir = Path.Combine(roaming, "BerthMenu");
-                if (!Directory.Exists(oldDir) || File.Exists(Path.Combine(newDir, "config.json")))
-                    return;
-
-                bool moved = false;
-                if (!Directory.Exists(newDir))
-                {
-                    try
-                    {
-                        Directory.Move(oldDir, newDir);
-                        moved = true;
-                    }
-                    catch
-                    {
-                        // A file in use, say — copy instead.
-                    }
-                }
-                if (!moved)
-                {
-                    CopyFolder(oldDir, newDir);
-                    try { Directory.Delete(oldDir, recursive: true); } catch { /* left behind, harmless */ }
-                }
-
-                // config.json and its backups store full paths into the old folder.
-                var files = new List<string> { Path.Combine(newDir, "config.json") };
-                string backups = Path.Combine(newDir, "Backups");
-                if (Directory.Exists(backups))
-                    files.AddRange(Directory.GetFiles(backups, "*.json"));
-                foreach (string file in files)
-                {
-                    if (!File.Exists(file))
-                        continue;
-                    string json = File.ReadAllText(file);
-                    // Saved JSON escapes each backslash as \\.
-                    string fixedJson = System.Text.RegularExpressions.Regex.Replace(json,
-                        System.Text.RegularExpressions.Regex.Escape(oldDir.Replace("\\", "\\\\")),
-                        newDir.Replace("\\", "\\\\").Replace("$", "$$"),
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                    if (fixedJson != json)
-                        File.WriteAllText(file, fixedJson);
-                }
-            }
-            catch
-            {
-                // Never stop BerthMenu from starting over this.
-            }
-        }
-
-        private static void CopyFolder(string from, string to)
-        {
-            Directory.CreateDirectory(to);
-            foreach (string file in Directory.GetFiles(from))
-            {
-                try { File.Copy(file, Path.Combine(to, Path.GetFileName(file)), overwrite: false); } catch { /* skip */ }
-            }
-            foreach (string dir in Directory.GetDirectories(from))
-                CopyFolder(dir, Path.Combine(to, Path.GetFileName(dir)));
-        }
-
         public ConfigService()
         {
             AppDataFolder = Path.Combine(
@@ -403,7 +333,7 @@ namespace BerthMenu.Services
         // Export / import (Settings → Startup) and Reset
         // ---------------------------------------------------------------
         //
-        // An export is a zip file (".startdock") holding config.json plus the
+        // An export is a zip file (".berthmenu") holding config.json plus the
         // pictures it uses — every tile icon in the icon cache (custom ones
         // included) and the background picture — so it can be brought back on
         // this PC or another one. Importing puts those pictures into this PC's

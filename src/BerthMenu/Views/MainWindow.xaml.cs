@@ -3527,8 +3527,8 @@ namespace BerthMenu.Views
 
         // Internal markers for the two built-in action tiles — never real paths, and
         // never saved anywhere (these tiles can't be pinned).
-        private const string CalcTargetPrefix = "startdock:calc:";
-        private const string WebTargetPrefix = "startdock:web:";
+        private const string CalcTargetPrefix = "berthmenu:calc:";
+        private const string WebTargetPrefix = "berthmenu:web:";
 
         private DockIconViewModel CreateCalculatorTile(double value)
         {
@@ -3541,7 +3541,7 @@ namespace BerthMenu.Views
             };
         }
 
-        private const string RunTargetPrefix = "startdock:run:";
+        private const string RunTargetPrefix = "berthmenu:run:";
 
         // Icons for run results, by program or path, so they aren't re-extracted
         // on every keystroke.

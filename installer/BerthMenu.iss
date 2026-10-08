@@ -60,13 +60,6 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; Flags: ignoreversion
 
-; One-time cleanup after the rename from StartDock (0.9.8): the old program and
-; its shortcuts.
-[InstallDelete]
-Type: files; Name: "{app}\StartDock.exe"
-Type: files; Name: "{autoprograms}\StartDock.lnk"
-Type: files; Name: "{autodesktop}\StartDock.lnk"
-
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
@@ -82,16 +75,6 @@ Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: ShouldRelau
 function ShouldRelaunch: Boolean;
 begin
   Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
-end;
-
-// One-time, for the rename from StartDock (0.9.8): close a running StartDock.exe,
-// which Setup's own closing doesn't know about.
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ResultCode: Integer;
-begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM StartDock.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Result := '';
 end;
 
 // Removes the Start as Admin task at TaskPath: a quiet try, then (unless

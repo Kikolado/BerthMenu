@@ -26,7 +26,6 @@ namespace BerthMenu.Services
         private const string FolderPath = @"\BerthMenu";
         private const string TaskLeafName = "Start as admin";
         private const string TaskPath = @"\BerthMenu\Start as admin"; // for schtasks /TN
-        private const string OldTaskPath = @"\StartDock\Start as admin"; // before the rename
         private const string RelaunchArg = "--elevated-relaunch";
 
         /// <summary>True if the task exists and starts this copy's .exe (it won't
@@ -88,20 +87,6 @@ namespace BerthMenu.Services
             finally
             {
                 try { File.Delete(xmlPath); } catch { /* temp file, fine to leave */ }
-            }
-        }
-
-        /// <summary>Removes the task from before the rename (StartDock), which points
-        /// at the old .exe. Needs admin rights, like Delete.</summary>
-        public static void DeleteOldTask()
-        {
-            try
-            {
-                RunSchtasks($"/Delete /TN \"{OldTaskPath}\" /F", elevated: true);
-            }
-            catch
-            {
-                // Harmless if it stays.
             }
         }
 

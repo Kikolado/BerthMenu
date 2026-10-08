@@ -9,17 +9,12 @@ namespace BerthMenu.Services
     {
         private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string ValueName = "BerthMenu";
-        private const string OldValueName = "StartDock"; // before the rename
 
         public static void SetEnabled(bool enabled)
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
                              ?? Registry.CurrentUser.CreateSubKey(RunKeyPath);
             if (key == null) return;
-
-            // The entry from before the rename pointed at StartDock.exe.
-            if (key.GetValue(OldValueName) != null)
-                key.DeleteValue(OldValueName, throwOnMissingValue: false);
 
             if (enabled)
             {

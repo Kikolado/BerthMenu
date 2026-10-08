@@ -51,7 +51,7 @@ namespace BerthMenu.Services
         /// itself. Empty for things that aren't worth counting.</summary>
         public static string KeyFor(string? target)
         {
-            if (string.IsNullOrWhiteSpace(target) || target.StartsWith("startdock:", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(target) || target.StartsWith("berthmenu:", StringComparison.OrdinalIgnoreCase))
                 return string.Empty;
             const string appsFolder = "shell:AppsFolder\\";
             string key = target.StartsWith(appsFolder, StringComparison.OrdinalIgnoreCase)

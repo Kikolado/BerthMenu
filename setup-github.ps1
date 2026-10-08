@@ -63,7 +63,7 @@ if (-not (git config user.name)) { git config user.name $login }
 if (-not (git config user.email)) { git config user.email "$id+$login@users.noreply.github.com" }
 
 git add -A; Check "Adding files"
-git commit -m "StartDock 0.8"; Check "Saving the first version"
+git commit -m "BerthMenu first version"; Check "Saving the first version"
 
 gh repo create BerthMenu --public --source . --remote origin --push `
     --description "A customizable Start Menu replacement for Windows 11."
