@@ -10,10 +10,8 @@ agree to them. If you don't agree, don't install or use it.
    BerthMenu is licensed, not sold, and it is not open source. Each version is
    offered either free of charge (a "free license") or for a fee (a "paid
    license"), as stated where you get it or in BerthMenu itself. The author may
-   offer trials, offer some features only with a paid license, and change in
-   later versions what is free and what is paid. Such a change doesn't take
-   away a version you already have: you may keep using it under the terms it
-   came with.
+   offer trials, offer some features only with a paid license, and change
+   what is free and what is paid.
 
 2. What you may do
    - With a free license: install and use BerthMenu on as many devices as you
@@ -23,10 +21,12 @@ agree to them. If you don't agree, don't install or use it.
      users covers that many people. A paid license covers what was stated when
      it was bought (for example, which versions or how long).
 
-3. Sharing
-   You may give others the unmodified installer of a version that has a free
-   license, free of charge. You may not share, publish or sell license keys,
-   or let people use a paid license that isn't theirs.
+3. Where BerthMenu comes from
+   BerthMenu is distributed only by the author: through the Microsoft Store, or
+   by the author directly. You may not copy, share, publish or host its
+   installer or package, or make it available to others in any other way. You
+   may not share, publish or sell license keys, or let people use a paid
+   license that isn't theirs.
 
 4. What you may not do
    - Sell, rent, lease or sublicense BerthMenu, or charge others for it.
@@ -43,9 +43,10 @@ agree to them. If you don't agree, don't install or use it.
    by their own licenses (THIRD-PARTY-NOTICES.txt, and Settings -> License).
 
 6. Updates and changes to these terms
-   BerthMenu can update itself. Updates are covered by these terms unless they
-   come with their own. If the terms change, BerthMenu shows the new terms and
-   asks you to accept them before you keep using it.
+   Updates (through the Microsoft Store, or from the author) are covered by
+   these terms unless they come with their own. If the terms change,
+   BerthMenu shows the new terms and asks you to accept them before you keep
+   using it.
 
 7. Payments and refunds
    Paid licenses are sold through the store or payment service named at
@@ -55,8 +56,8 @@ agree to them. If you don't agree, don't install or use it.
 8. Your data
    BerthMenu keeps your settings and pins on your own device. It doesn't send
    personal data to the author. It connects to the internet only for things
-   you use: checking for updates, downloading the icon of a website you pin,
-   and opening web searches or web pages in your browser. If a version checks
+   you use: downloading the icon of a website you pin, and opening web
+   searches or web pages in your browser. If a version checks
    a license online, it says so, and sends only what that check needs (such as
    the license key).
 

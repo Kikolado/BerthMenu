@@ -19,15 +19,11 @@ launcher next to Windows' menu.
 
 ## Download
 
-Get the latest **BerthMenu-Setup-x.x.x.exe** from the
-[Releases page](https://github.com/Kikolado/BerthMenu/releases/latest) and run it.
+BerthMenu is coming to the **Microsoft Store**. The link will be here once it's
+available there.
 
 - Windows 10 (1809 or later) or Windows 11, 64-bit.
-- No administrator rights needed, and nothing else to install first.
-- BerthMenu updates itself: Settings → Startup → **Update automatically**.
-- Windows SmartScreen may warn the first time, because BerthMenu isn't
-  code-signed. Click **More info → Run anyway**.
-- Or install it with winget: `winget install Kikolado.BerthMenu`
+- Updates come through the Microsoft Store.
 
 The first time it runs, a short welcome screen lets you pick how BerthMenu
 opens, where it sits on screen and how it looks, and can pin your most used apps
@@ -170,8 +166,8 @@ Your settings and pins are stored in `%AppData%\BerthMenu`.
 
 ## Uninstalling
 
-Uninstall BerthMenu from Windows Settings → Apps like any other app. It asks
-whether to keep your settings and pins, in case you reinstall later.
+Uninstall BerthMenu from Windows Settings → Apps like any other app. To keep a
+copy of your setup first, use Settings → Startup → **Export…**.
 
 To turn it off without uninstalling, right-click the tray icon → **Exit**, and
 untick Settings → Startup → **Start when I sign in**.
@@ -184,7 +180,8 @@ BerthMenu and Windows versions filled in.
 
 ## License
 
-BerthMenu is free to use, but it isn't open source: see [LICENSE](LICENSE) for
+BerthMenu isn't open source, and it's distributed only through the Microsoft
+Store: see [LICENSE](LICENSE) for
 the terms, and [PRIVACY.md](PRIVACY.md) for what it does (and doesn't do) with
 your data.
 

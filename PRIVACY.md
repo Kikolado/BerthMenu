@@ -4,15 +4,13 @@ BerthMenu doesn't collect personal data, and doesn't send any to its author.
 
 **What stays on your PC.** Your settings, pinned apps, folders, files and
 websites, widget settings and notes, and BerthMenu's own icon cache are saved on
-your PC only (in `%AppData%\BerthMenu`, or the Microsoft Store version's own app
-data folder). Nothing is uploaded. Settings → Startup → **Export…** saves a copy
-wherever you choose.
+your PC only (in BerthMenu's app data folder). Nothing is uploaded.
+Settings → Startup → **Export…** saves a copy wherever you choose.
 
 **When BerthMenu goes online.** Only for things you use:
 
-- **Updates:** the version from GitHub checks
-  [github.com/Kikolado/BerthMenu](https://github.com/Kikolado/BerthMenu) for new
-  versions. The Microsoft Store version is updated by the Microsoft Store.
+- **Updates** come through the Microsoft Store; BerthMenu itself doesn't check
+  for them.
 - **Website tiles:** when you pin a website, BerthMenu downloads that site's icon
   from the site itself.
 - **Web search** and links (like Report a problem) open in your web browser,
