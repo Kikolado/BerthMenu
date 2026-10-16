@@ -185,6 +185,7 @@ BerthMenu and Windows versions filled in.
 ## License
 
 BerthMenu is free to use, but it isn't open source: see [LICENSE](LICENSE) for
-the terms.
+the terms, and [PRIVACY.md](PRIVACY.md) for what it does (and doesn't do) with
+your data.
 
 Copyright © 2026 Roberto Regalado. All rights reserved.
